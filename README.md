@@ -1,5 +1,5 @@
 # jsfc
 FamilyComputer(NES) Emulator written in Javascript
 
-# Demo
+## Demo
 <https://yhzmr442.github.io/jsfc/>
