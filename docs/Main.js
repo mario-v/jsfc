@@ -154,12 +154,12 @@ function FCSet() {
 
 
 function FCMicrophoneVolume() {
-	fc.WebAudioVolume(document.querySelector("#microphonevolume").value);
+	fc.SetMicrophoneVolume(document.querySelector("#microphonevolume").value);
 }
 
 
 function FCVolume() {
-	fc.WebAudioVolume(document.querySelector("#volume").value);
+	fc.SetWebAudioVolume(document.querySelector("#volume").value);
 }
 
 

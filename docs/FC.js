@@ -2363,8 +2363,19 @@ FC.prototype.PpuRun = function () {
 			if(tmpIsScreenEnable || tmpIsSpriteEnable) {
 				this.PPUAddress = (this.PPUAddress & 0xFBE0) | (this.PPUAddressBuffer & 0x041F);
 
-				this.BuildBGLine();
-				this.BuildSpriteLine();
+				if((this.IO1[0x01] & 0x08) == 0x08) {
+					this.Mapper.BuildBGLine();
+					if((this.IO1[0x01] & 0x02) != 0x02) {
+						for(let p=0; p<8; p++)
+							tmpBgLineBuffer[p] = 0x10;
+					}
+				} else {
+					for(let p=0; p<264; p++)
+						tmpBgLineBuffer[p] = 0x10;
+				}
+
+				if((this.IO1[0x01] & 0x10) == 0x10)
+					this.Mapper.BuildSpriteLine();
 
 				let tmpDist = this.PpuY << 10;
 				for(let p=0; p<256; p++, tmpDist+=4) {
@@ -2409,23 +2420,6 @@ FC.prototype.PpuRun = function () {
 }
 
 
-FC.prototype.BuildBGLine = function () {
-	let tmpBgLineBuffer = this.BgLineBuffer;
-	if((this.IO1[0x01] & 0x08) != 0x08) {
-		for(let p=0; p<264; p++)
-			tmpBgLineBuffer[p] = 0x10;
-		return;
-	}
-
-	this.Mapper.BuildBGLine();
-
-	if((this.IO1[0x01] & 0x02) != 0x02) {
-		for(let p=0; p<8; p++)
-			tmpBgLineBuffer[p] = 0x10;
-	}
-}
-
-
 FC.prototype.BuildBGLine_SUB = function () {
 	let tmpBgLineBuffer = this.BgLineBuffer;
 	let tmpVRAM = this.VRAM;
@@ -2458,12 +2452,6 @@ FC.prototype.BuildBGLine_SUB = function () {
 		} else
 			nameAddrLow++;
 	}
-}
-
-
-FC.prototype.BuildSpriteLine = function () {
-	if((this.IO1[0x01] & 0x10) == 0x10)
-		this.Mapper.BuildSpriteLine();
 }
 
 
@@ -2587,11 +2575,6 @@ FC.prototype.ReadPPUStatus = function () {
 }
 
 
-FC.prototype.ReadPPUData = function () {
-	return this.Mapper.ReadPPUData();
-}
-
-
 FC.prototype.ReadPPUData_SUB = function () {
 	let tmp = this.PPUReadBuffer;
 	let addr = this.PPUAddress & 0x3FFF;
@@ -2606,11 +2589,6 @@ FC.prototype.ReadPPUData_SUB = function () {
 	this.PPUAddress = (this.PPUAddress + ((this.IO1[0x00] & 0x04) == 0x04 ? 32 : 1)) & 0xFFFF;
 
 	return tmp;
-}
-
-
-FC.prototype.WritePPUData = function (value) {
-	this.Mapper.WritePPUData(value);
 }
 
 
@@ -2755,7 +2733,7 @@ FC.prototype.Get = function (address) {
 				case 0x02:
 					return this.ReadPPUStatus();
 				case 0x07:
-					return this.ReadPPUData();
+					return this.Mapper.ReadPPUData();
 			}
 			return 0;
 		case 0x4000:
@@ -2816,7 +2794,7 @@ FC.prototype.Set = function (address, data) {
 					this.WritePPUAddressRegister(data);
 					return;
 				case 7:
-					this.WritePPUData(data);
+					this.Mapper.WritePPUData(data);
 					return;
 			}
 		case 0x4000:
@@ -3177,14 +3155,14 @@ FC.prototype.MicrophoneSpeaker = function (value) {
 }
 
 
-FC.prototype.MicrophoneVolume = function (value) {
+FC.prototype.SetMicrophoneVolume = function (value) {
 	this.MicrophoneVolume = value;
 	if(this.MicrophoneStream != null)
 		this.MicrophoneGainNode.gain.value = this.MicrophoneVolume;
 }
 
 
-FC.prototype.WebAudioVolume = function (value) {
+FC.prototype.SetWebAudioVolume = function (value) {
 	this.WaveVolume = value;
 	if(this.WebAudioCtx != null)
 		this.WebAudioGainNode.gain.value = this.WaveVolume;
