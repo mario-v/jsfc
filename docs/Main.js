@@ -10,18 +10,17 @@ let FCUse_FileReader;
 window.addEventListener('load', FCSet, false);
 
 
-function FCRomFileChange(e) {
+async function FCRomFileChange(e) {
 	if(e.target.value != "") {
-		let xhr = new XMLHttpRequest();
-		xhr.onload = function() {
-			if (this.readyState === this.DONE) {
-				if(this.status == 200 || this.status == 304)
-					FCRomChange(this.response);
-			}
-		}
-		xhr.open("GET", e.target.value);
-		xhr.responseType = "arraybuffer";
-		xhr.send();
+		await fetch(e.target.value)
+			.then((response) => {
+				if (!response.ok) throw new Error(response.statusText);
+				response.arrayBuffer()
+					.then((data) => {
+						FCRomChange(data);
+					});
+			})
+			.catch((e) => {});
 	}
 }
 

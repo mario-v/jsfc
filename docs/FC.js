@@ -172,6 +172,10 @@ function FC() {
 	this.SPRITE_RAM = new Array(0x100);
 
 	this.ROM = new Array(4);
+	this.ROM0 = null;
+	this.ROM1 = null;
+	this.ROM2 = null;
+	this.ROM3 = null;
 	this.ROM_RAM = new Array(4);
 	for(let i=0; i<4; i++)
 		this.ROM_RAM[i] = new Array(0x2000);
@@ -2750,13 +2754,13 @@ FC.prototype.Get = function (address) {
 		case 0x6000:
 			return this.Mapper.ReadSRAM(address);
 		case 0x8000:
-			return this.ROM[0][address & 0x1FFF];
+			return this.ROM0[address & 0x1FFF];
 		case 0xA000:
-			return this.ROM[1][address & 0x1FFF];
+			return this.ROM1[address & 0x1FFF];
 		case 0xC000:
-			return this.ROM[2][address & 0x1FFF];
+			return this.ROM2[address & 0x1FFF];
 		case 0xE000:
-			return this.ROM[3][address & 0x1FFF];
+			return this.ROM3[address & 0x1FFF];
 	}
 }
 
@@ -2863,6 +2867,11 @@ FC.prototype.SetPrgRomPage8K = function (page, romPage){
 		this.PRGROM_STATE[page] = romPage % (this.PrgRomPageCount * 2);
 		this.ROM[page] = this.PRGROM_PAGES[this.PRGROM_STATE[page]];
 	}
+
+	this.ROM0 = this.ROM[0];
+	this.ROM1 = this.ROM[1];
+	this.ROM2 = this.ROM[2];
+	this.ROM3 = this.ROM[3];
 }
 
 
@@ -3455,7 +3464,7 @@ FC.prototype.WaveSequencer = function () {
 
 			if((this.WaveCh5SampleCounter & 0x0007) == 0) {
 				if(this.WaveCh5SampleCounter != 0){
-					this.WaveCh5Register = this.ROM[(this.WaveCh5SampleAddress >> 13) + 2][this.WaveCh5SampleAddress & 0x1FFF];
+					this.WaveCh5Register = this.Get(this.WaveCh5SampleAddress + 0xC000);
 					this.WaveCh5SampleAddress++;
 					this.CPUClock += 4;
 				}
