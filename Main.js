@@ -15,11 +15,9 @@ async function FCRomFileChange(e) {
 		await fetch(e.target.value)
 			.then((response) => {
 				if (!response.ok) throw new Error(response.statusText);
-				response.arrayBuffer()
-					.then((data) => {
-						FCRomChange(data);
-					});
+				return response.arrayBuffer();
 			})
+			.then((data) => { FCRomChange(data); })
 			.catch((e) => {});
 	}
 }
