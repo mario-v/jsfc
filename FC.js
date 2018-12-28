@@ -1981,12 +1981,10 @@ FC.prototype.PpuInit = function () {
 	this.PPUChrAreaWrite = false;
 
 	this.Palette = new Array(32);
-	for(let i=0; i<this.Palette.length; i++)
-		this.Palette[i] = 0x0F;
+	this.Palette.fill(0x0F);
 
 	this.SpriteLineBuffer = new Array(256);
-	for(let i=0; i<this.SpriteLineBuffer.length; i++)
-		this.SpriteLineBuffer[i] = 0;
+	this.SpriteLineBuffer.fill(0);
 
 	this.PPUReadBuffer = 0;
 
@@ -1996,8 +1994,7 @@ FC.prototype.PpuInit = function () {
 		this.SetMirror(this.HMirror);
 
 	this.BgLineBuffer = new Array(256 + 8);
-	for(let i=0; i<this.BgLineBuffer.length; i++)
-		this.BgLineBuffer[i] = 0;
+	this.BgLineBuffer.fill(0);
 
 	this.PpuX = 0;
 	this.PpuY = 0;
@@ -2115,12 +2112,10 @@ FC.prototype.PpuRun = function () {
 				if((this.IO1[0x01] & 0x08) == 0x08) {
 					this.Mapper.BuildBGLine();
 					if((this.IO1[0x01] & 0x02) != 0x02) {
-						for(let p=0; p<8; p++)
-							tmpBgLineBuffer[p] = 0x10;
+						tmpBgLineBuffer.fill(0x10, 0, 8);
 					}
 				} else {
-					for(let p=0; p<264; p++)
-						tmpBgLineBuffer[p] = 0x10;
+					tmpBgLineBuffer.fill(0x10);
 				}
 
 				if((this.IO1[0x01] & 0x10) == 0x10)
@@ -2414,39 +2409,29 @@ FC.prototype.ParseHeader = function () {
 /* **** FC Storage **** */
 FC.prototype.StorageClear = function () {
 	let i;
-	let j;
 
-	for(i=0; i<this.RAM.length; i++)
-		this.RAM[i] = 0;
+	this.RAM.fill(0);
 
-	for(i=0; i<this.INNERSRAM.length; i++)
-		this.INNERSRAM[i] = 0;
+	this.INNERSRAM.fill(0);
 	this.SRAM = this.INNERSRAM;
 
-	for(i=0; i<this.PRGROM_STATE.length; i++)
-		this.PRGROM_STATE[i] = 0;
-	for(i=0; i<this.CHRROM_STATE.length; i++)
-		this.CHRROM_STATE[i] = 0;
+	this.PRGROM_STATE.fill(0);
+	this.CHRROM_STATE.fill(0);
 
 	for(i=0; i<this.VRAMS.length; i++) {
-		for(j=0; j<this.VRAMS[i].length; j++)
-			this.VRAMS[i][j] = 0;
+		this.VRAMS[i].fill(0);
 		this.SetChrRomPage1K(i, i + 0x0100);
 	}
 
-	for(i=0; i<this.SPRITE_RAM.length; i++)
-		this.SPRITE_RAM[i] = 0;
+	this.SPRITE_RAM.fill(0);
 
 	for(i=0; i<this.ROM_RAM.length; i++) {
-		for(j=0; j<this.ROM_RAM[i].length; j++)
-			this.ROM_RAM[i][j] = 0;
+		this.ROM_RAM[i].fill(0);
 		this.SetPrgRomPage8K(i, -(i + 1));
 	}
 
-	for(i=0; i<this.IO1.length; i++)
-		this.IO1[i] = 0;
-	for(i=0; i<this.IO2.length; i++)
-		this.IO2[i] = 0;
+	this.IO1.fill(0);
+	this.IO2.fill(0);
 	this.IO2[0x17] = 0x40;
 }
 
@@ -3462,9 +3447,7 @@ FC.prototype.Mapper1.prototype = Object.create(FC.prototype.MapperPrototype.prot
 FC.prototype.Mapper1.prototype.Init = function() {
 	this.Core.PPUChrAreaWrite = true;
 
-	let i;
-	for(i=0; i<this.MAPPER_REG.length; i++)
-		this.MAPPER_REG[i] = 0;
+	this.MAPPER_REG.fill(0);
 
 	this.MAPPER_REG[13] = 0;
 	this.MAPPER_REG[14] = 0x00;
@@ -3713,9 +3696,7 @@ FC.prototype.Mapper4 = function(core) {
 FC.prototype.Mapper4.prototype = Object.create(FC.prototype.MapperPrototype.prototype);
 
 FC.prototype.Mapper4.prototype.Init = function() {
-	let i;
-	for(i=0; i<this.MAPPER_REG.length; i++)
-		this.MAPPER_REG[i] = 0;
+	this.MAPPER_REG.fill(0);
 
 	this.MAPPER_REG[16] = 0;
 	this.MAPPER_REG[17] = 1;
