@@ -40,7 +40,6 @@ function FC() {
 	this.toNMI = false;
 	this.toIRQ = 0x00;
 	this.CPUClock = 0;
-	//this.CPUClockOdd = 0;//<--
 
 	//this.HalfCarry = false;
 
@@ -436,7 +435,6 @@ FC.prototype.CpuInit = function () {
 	this.PC = this.Get16(0xFFFC);
 
 	this.CPUClock = 0;
-	//this.CPUClockOdd = 0;//<--
 }
 
 
@@ -448,7 +446,6 @@ FC.prototype.CpuReset = function () {
 	this.PC = this.Get16(0xFFFC);
 
 	this.CPUClock = 0;
-	//this.CPUClockOdd = 0;//<--
 }
 
 
@@ -901,7 +898,6 @@ FC.prototype.CpuRun = function () {
 		mapper.CPUSync(this.CPUClock);
 		this.PpuRun();
 		this.ApuRun();
-		//this.CPUClockOdd = (this.CPUClockOdd + this.CPUClock) & 0x01;//<--
 		this.CPUClock = 0;
 
 		switch (opcode) {
@@ -2384,7 +2380,6 @@ FC.prototype.StartDMA = function (data) {
 	let adr = this.IO1[0x03];
 	for(let i = 0; i < 0x100; i++, offset++)
 		tmpDist[(adr + i) & 0xFF] = tmpSrc[offset];
-	//this.CPUClock += this.CPUClockOdd == 0x01 ? 514 : 513;//<--
 	this.CPUClock += 513;
 }
 
@@ -3068,7 +3063,7 @@ FC.prototype.WriteCh5DeltaCounter = function () {
 FC.prototype.SetCh5Delta = function () {
 	let tmpIO2 = this.IO2;
 	this.WaveCh5DeltaCounter = tmpIO2[0x11] & 0x7F;
-	this.WaveCh5SampleAddress = (tmpIO2[0x12] << 6);
+	this.WaveCh5SampleAddress = (tmpIO2[0x12] << 6) + 0xC000;
 	this.WaveCh5SampleCounter = ((tmpIO2[0x13] << 4) + 1) << 3;
 	this.WaveCh5Register = 0;
 	this.toIRQ &= ~0x80;
@@ -3195,9 +3190,7 @@ FC.prototype.WaveSequencer = function () {
 
 			if((this.WaveCh5SampleCounter & 0x0007) == 0) {
 				if(this.WaveCh5SampleCounter != 0){
-					//this.WaveCh5Register = this.ROM[(this.WaveCh5SampleAddress >> 13) + 2][this.WaveCh5SampleAddress & 0x1FFF];
-					this.WaveCh5Register = this.Get(this.WaveCh5SampleAddress + 0xC000);
-					this.WaveCh5SampleAddress++;
+					this.WaveCh5Register = this.Get(this.WaveCh5SampleAddress++);
 					this.CPUClock += 4;
 				}
 			}
