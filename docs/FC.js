@@ -197,6 +197,10 @@ function FC() {
 	this.JoyPadBuffer = [0x00, 0x00];
 	this.JoyPadKeyUpFunction = null;
 	this.JoyPadKeyDownFunction = null;
+	this.JoyPadKeyData = [
+		//A            B             SELECT   START   UP             DOWN           LEFT            RIGHT
+		[ 88/*X*/,     90/*Z*/,     65/*A*/, 83/*S*/, 38/*UP KEY*/, 40/*DOWN KEY*/, 37/*LEFT KEY*/, 39/*RIGHT KEY*/],
+		[105/*Num 7*/,103/*Num 9*/, -1,      -1,     104/*Num 8*/,  98/*Num 2*/,   100/*Num 4*/,   102/*Num 6*/]];
 
 	this.GamePadData = {};
 	this.GamePadData["STANDARD PAD"] = [
@@ -2641,104 +2645,26 @@ FC.prototype.ReadJoyPadRegister2 = function () {
 
 
 FC.prototype.KeyUpFunction = function (evt){
-	switch (evt.keyCode){
-		//1CON
-		case 88:// A
-			this.JoyPadState[0] &= ~0x01;
+	let i;
+	for(i=0; i<2; i++) {
+		let tmp = this.JoyPadKeyData[i].indexOf(evt.keyCode);
+		if(tmp != -1) {
+			this.JoyPadState[i] &= ~(0x01 << tmp);
 			break;
-		case 90:// B
-			this.JoyPadState[0] &= ~0x02;
-			break;
-		case 65:// SELECT
-			this.JoyPadState[0] &= ~0x04;
-			break;
-		case 83:// START
-			this.JoyPadState[0] &= ~0x08;
-			break;
-		case 38:// UP
-			this.JoyPadState[0] &= ~0x10;
-			break;
-		case 40:// DOWN
-			this.JoyPadState[0] &= ~0x20;
-			break;
-		case 37:// LEFT
-			this.JoyPadState[0] &= ~0x40;
-			break;
-		case 39:// RIGHT
-			this.JoyPadState[0] &= ~0x80;
-			break;
-
-		//2CON
-		case 105:// A
-			this.JoyPadState[1] &= ~0x01;
-			break;
-		case 103:// B
-			this.JoyPadState[1] &= ~0x02;
-			break;
-		case 104:// UP
-			this.JoyPadState[1] &= ~0x10;
-			break;
-		case 98:// DOWN
-			this.JoyPadState[1] &= ~0x20;
-			break;
-		case 100:// LEFT
-			this.JoyPadState[1] &= ~0x40;
-			break;
-		case 102:// RIGHT
-			this.JoyPadState[1] &= ~0x80;
-			break;
+		}
 	}
 	evt.preventDefault();
 }
 
 
 FC.prototype.KeyDownFunction = function (evt){
-	switch (evt.keyCode){
-		//1CON
-		case 88:// A
-			this.JoyPadState[0] |= 0x01;
+	let i;
+	for(i=0; i<2; i++) {
+		let tmp = this.JoyPadKeyData[i].indexOf(evt.keyCode);
+		if(tmp != -1) {
+			this.JoyPadState[i] |= 0x01 << tmp;
 			break;
-		case 90:// B
-			this.JoyPadState[0] |= 0x02;
-			break;
-		case 65:// SELECT
-			this.JoyPadState[0] |= 0x04;
-			break;
-		case 83:// START
-			this.JoyPadState[0] |= 0x08;
-			break;
-		case 38:// UP
-			this.JoyPadState[0] |= 0x10;
-			break;
-		case 40:// DOWN
-			this.JoyPadState[0] |= 0x20;
-			break;
-		case 37:// LEFT
-			this.JoyPadState[0] |= 0x40;
-			break;
-		case 39:// RIGHT
-			this.JoyPadState[0] |= 0x80;
-			break;
-
-		//2CON
-		case 105:// A
-			this.JoyPadState[1] |= 0x01;
-			break;
-		case 103:// B
-			this.JoyPadState[1] |= 0x02;
-			break;
-		case 104:// UP
-			this.JoyPadState[1] |= 0x10;
-			break;
-		case 98:// DOWN
-			this.JoyPadState[1] |= 0x20;
-			break;
-		case 100:// LEFT
-			this.JoyPadState[1] |= 0x40;
-			break;
-		case 102:// RIGHT
-			this.JoyPadState[1] |= 0x80;
-			break;
+		}
 	}
 	evt.preventDefault();
 }
