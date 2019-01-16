@@ -2935,7 +2935,8 @@ FC.prototype.WriteCh1Length0 = function () {
 
 
 FC.prototype.WriteCh1Length1 = function () {
-	this.WaveCh1LengthCounter = this.WaveLengthCount[this.IO2[0x03] >> 3];
+	if((this.IO2[0x15] & 0x01) == 0x01)
+		this.WaveCh1LengthCounter = this.WaveLengthCount[this.IO2[0x03] >> 3];
 	this.WaveCh1Envelope = 0;
 	this.WaveCh1EnvelopeCounter = 0x0F;
 	this.WaveCh1Sweep = 0;
@@ -2949,7 +2950,8 @@ FC.prototype.WriteCh2Length0 = function () {
 
 
 FC.prototype.WriteCh2Length1 = function () {
-	this.WaveCh2LengthCounter = this.WaveLengthCount[this.IO2[0x07] >> 3];
+	if((this.IO2[0x15] & 0x02) == 0x02)
+		this.WaveCh2LengthCounter = this.WaveLengthCount[this.IO2[0x07] >> 3];
 	this.WaveCh2Envelope = 0;
 	this.WaveCh2EnvelopeCounter = 0x0F;
 	this.WaveCh2Sweep = 0;
@@ -2963,13 +2965,15 @@ FC.prototype.WriteCh3LinearCounter = function (){
 
 
 FC.prototype.WriteCh3Length1 = function () {
-	this.WaveCh3LengthCounter = this.WaveLengthCount[this.IO2[0x0B] >> 3];
+	if((this.IO2[0x15] & 0x04) == 0x04)
+		this.WaveCh3LengthCounter = this.WaveLengthCount[this.IO2[0x0B] >> 3];
 	this.WaveCh3LinearCounter = this.IO2[0x08] & 0x7F;
 }
 
 
 FC.prototype.WriteCh4Length1 = function () {
-	this.WaveCh4LengthCounter = this.WaveLengthCount[this.IO2[0x0F] >> 3];
+	if((this.IO2[0x15] & 0x08) == 0x08)
+		this.WaveCh4LengthCounter = this.WaveLengthCount[this.IO2[0x0F] >> 3];
 	this.WaveCh4Envelope = 0;
 	this.WaveCh4EnvelopeCounter = 0x0F;
 }
@@ -3189,25 +3193,17 @@ FC.prototype.ApuRun = function () {
 FC.prototype.WaveCh1_2_3_4_Length_WaveCh1_2_Sweep = function () {
 	let tmpIO2 = this.IO2;
 
-	if((tmpIO2[0x00] & 0x20) == 0x00 && this.WaveCh1LengthCounter != 0) {
-		if(--this.WaveCh1LengthCounter == 0)
-			tmpIO2[0x15] &= 0xFE;
-	}
+	if((tmpIO2[0x00] & 0x20) == 0x00 && this.WaveCh1LengthCounter != 0)
+		this.WaveCh1LengthCounter--;
 
-	if((tmpIO2[0x04] & 0x20) == 0x00 && this.WaveCh2LengthCounter != 0) {
-		if(--this.WaveCh2LengthCounter == 0)
-			tmpIO2[0x15] &= 0xFD;
-	}
+	if((tmpIO2[0x04] & 0x20) == 0x00 && this.WaveCh2LengthCounter != 0)
+		this.WaveCh2LengthCounter--;
 
-	if((tmpIO2[0x08] & 0x80) == 0x00 && this.WaveCh3LengthCounter != 0) {
-		if(--this.WaveCh3LengthCounter == 0)
-			tmpIO2[0x15] &= 0xFB;
-	}
+	if((tmpIO2[0x08] & 0x80) == 0x00 && this.WaveCh3LengthCounter != 0)
+		this.WaveCh3LengthCounter--;
 
-	if((tmpIO2[0x0C] & 0x20) == 0x00 && this.WaveCh4LengthCounter != 0) {
-		if(--this.WaveCh4LengthCounter == 0)
-			tmpIO2[0x15] &= 0xF7;
-	}
+	if((tmpIO2[0x0C] & 0x20) == 0x00 && this.WaveCh4LengthCounter != 0)
+		this.WaveCh4LengthCounter--;
 
 	if(++this.WaveCh1Sweep == (((tmpIO2[0x01] & 0x70) >> 4) + 1)) {
 		this.WaveCh1Sweep = 0;
@@ -3217,10 +3213,8 @@ FC.prototype.WaveCh1_2_3_4_Length_WaveCh1_2_Sweep = function () {
 			else
 				this.WaveCh1Frequency += ~this.WaveCh1Frequency >> (tmpIO2[0x01] & 0x07);
 
-			if(this.WaveCh1Frequency < 0x08 || this.WaveCh1Frequency > 0x7FF) {
+			if(this.WaveCh1Frequency < 0x08 || this.WaveCh1Frequency > 0x7FF)
 				this.WaveCh1LengthCounter = 0;
-				tmpIO2[0x15] &= 0xFE;
-			}
 		}
 	}
 
@@ -3232,10 +3226,8 @@ FC.prototype.WaveCh1_2_3_4_Length_WaveCh1_2_Sweep = function () {
 			else
 				this.WaveCh2Frequency += (~this.WaveCh2Frequency + 1) >> (tmpIO2[0x05] & 0x07);
 
-			if(this.WaveCh2Frequency < 0x08 || this.WaveCh2Frequency > 0x7FF) {
+			if(this.WaveCh2Frequency < 0x08 || this.WaveCh2Frequency > 0x7FF)
 				this.WaveCh2LengthCounter = 0;
-				tmpIO2[0x15] &= 0xFD;
-			}
 		}
 	}
 }
