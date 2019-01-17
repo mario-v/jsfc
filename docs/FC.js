@@ -2196,10 +2196,9 @@ function FC() {
 	this.StartDMA = function (data) {
 		let offset = data << 8;
 		let tmpDist = this.SPRITE_RAM;
-		let tmpSrc = this.RAM;
 		let adr = this.IO1[0x03];
 		for(let i = 0; i < 0x100; i++, offset++)
-			tmpDist[(adr + i) & 0xFF] = tmpSrc[offset];
+			tmpDist[(adr + i) & 0xFF] = this.Get(offset);
 		this.CPUClock += 513;
 	}
 
