@@ -1,47 +1,878 @@
 "use strict";
 
-function FC() {
-	this.Use_requestAnimationFrame = typeof window.requestAnimationFrame !== "undefined";
-	this.Use_GetGamepads = typeof navigator.getGamepads !== "undefined";
+class FC {
+	constructor() {
+		this.Use_requestAnimationFrame = typeof window.requestAnimationFrame !== "undefined";
+		this.Use_GetGamepads = typeof navigator.getGamepads !== "undefined";
 
-	window.AudioContext = window.AudioContext || window.webkitAudioContext;
-	this.Use_AudioContext = typeof window.AudioContext !== "undefined";
-	this.TimerID = null;
+		window.AudioContext = window.AudioContext || window.webkitAudioContext;
+		this.Use_AudioContext = typeof window.AudioContext !== "undefined";
+		this.TimerID = null;
 
 
-	this.RequestAnimationFrame = function (){
+		/* **** Header **** */
+		this.PrgRomPageCount = 0;
+		this.ChrRomPageCount = 0;
+		this.HMirror = false;
+		this.VMirror = false;
+		this.SramEnable = false;
+		this.TrainerEnable = false;
+		this.FourScreen = false;
+		this.MapperNumber = -1;
+
+
+		/* **** Storage **** */
+		this.RAM = new Array(0x800);
+
+		this.INNERSRAM = new Array(0x2000);
+		this.SRAM;
+
+		this.VRAM = new Array(16);
+
+		this.VRAMS = new Array(16);
+		for(let i=0; i<16; i++)
+			this.VRAMS[i] = new Array(0x0400);
+
+		this.SPRITE_RAM = new Array(0x100);
+
+		this.ROM = new Array(4);
+		this.ROM0 = null;
+		this.ROM1 = null;
+		this.ROM2 = null;
+		this.ROM3 = null;
+		this.ROM_RAM = new Array(4);
+		for(let i=0; i<4; i++)
+			this.ROM_RAM[i] = new Array(0x2000);
+
+		this.PRGROM_STATE = new Array(4);
+		this.CHRROM_STATE = new Array(8);
+
+		this.PRGROM_PAGES = null;
+		this.CHRROM_PAGES = null;
+
+		this.IO1 = new Array(8);
+		this.IO2 = new Array(0x20);
+
+		this.Rom = null;
+
+
+		/* **** CPU **** */
+		this.CycleTable = [
+		 7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, //0x00
+		 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 6, 7, //0x10
+		 6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, //0x20
+		 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 6, 7, //0x30
+		 6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, //0x40
+		 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 6, 7, //0x50
+		 6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, //0x60
+		 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 6, 7, //0x70
+		 2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, //0x80
+		 2, 6, 2, 6, 4, 4, 4, 4, 2, 4, 2, 5, 5, 4, 5, 5, //0x90
+		 2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, //0xA0
+		 2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, //0xB0
+		 2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, //0xC0
+		 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //0xD0
+		 2, 6, 3, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, //0xE0
+		 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7];//0xF0
+
+		this.MainClock = 1789773;
+
+		this.A = 0;
+		this.X = 0;
+		this.Y = 0;
+		this.S = 0;
+		this.P = 0;
+		this.PC = 0;
+
+		this.toNMI = false;
+		this.toIRQ = 0x00;
+		this.CPUClock = 0;
+
+		//this.HalfCarry = false;
+
+		this.ZNCacheTable = new Array(256);
+		this.ZNCacheTable[0] = 0x02;
+		for(let i=1; i<256; i++)
+			this.ZNCacheTable[i] = i & 0x80;
+
+		this.ZNCacheTableCMP = new Array(512);
+		for(let i=0; i<256; i++) {
+			this.ZNCacheTableCMP[i] = this.ZNCacheTable[i] | 0x01;
+			this.ZNCacheTableCMP[i + 256] = this.ZNCacheTable[i];
+		}
+
+
+		/* **** PPU **** */
+		this.ScrollRegisterFlag = false;
+		this.PPUAddressRegisterFlag = false;
+		this.HScrollTmp = 0;
+		this.PPUAddress = 0;
+		this.PPUAddressBuffer = 0;
+		this.PPUChrAreaWrite = false;
+
+		this.Palette = null;
+		this.SpriteLineBuffer = null;
+		this.PPUReadBuffer = 0;
+
+		this.PaletteTable = [
+		[0x7C, 0x7C, 0x7C], [0x00, 0x00, 0xFC], [0x00, 0x00, 0xBC], [0x44, 0x28, 0xBC],
+		[0x94, 0x00, 0x84], [0xA8, 0x00, 0x20], [0xA8, 0x10, 0x00], [0x88, 0x14, 0x00],
+		[0x50, 0x30, 0x00], [0x00, 0x78, 0x00], [0x00, 0x68, 0x00], [0x00, 0x58, 0x00],
+		[0x00, 0x40, 0x58], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
+		[0xBC, 0xBC, 0xBC], [0x00, 0x78, 0xF8], [0x00, 0x58, 0xF8], [0x68, 0x44, 0xFC],
+		[0xD8, 0x00, 0xCC], [0xE4, 0x00, 0x58], [0xF8, 0x38, 0x00], [0xE4, 0x5C, 0x10],
+		[0xAC, 0x7C, 0x00], [0x00, 0xB8, 0x00], [0x00, 0xA8, 0x00], [0x00, 0xA8, 0x44],
+		[0x00, 0x88, 0x88], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
+		[0xF8, 0xF8, 0xF8], [0x3C, 0xBC, 0xFC], [0x68, 0x88, 0xFC], [0x98, 0x78, 0xF8],
+		[0xF8, 0x78, 0xF8], [0xF8, 0x58, 0x98], [0xF8, 0x78, 0x58], [0xFC, 0xA0, 0x44],
+		[0xF8, 0xB8, 0x00], [0xB8, 0xF8, 0x18], [0x58, 0xD8, 0x54], [0x58, 0xF8, 0x98],
+		[0x00, 0xE8, 0xD8], [0x78, 0x78, 0x78], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
+		[0xFC, 0xFC, 0xFC], [0xA4, 0xE4, 0xFC], [0xB8, 0xB8, 0xF8], [0xD8, 0xB8, 0xF8],
+		[0xF8, 0xB8, 0xF8], [0xF8, 0xA4, 0xC0], [0xF0, 0xD0, 0xB0], [0xFC, 0xE0, 0xA8],
+		[0xF8, 0xD8, 0x78], [0xD8, 0xF8, 0x78], [0xB8, 0xF8, 0xB8], [0xB8, 0xF8, 0xD8],
+		[0x00, 0xFC, 0xFC], [0xF8, 0xD8, 0xF8], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00]];
+
+		this.PaletteTablesWeight = [
+		[1.000, 1.000, 1.000], [1.239, 0.915, 0.743], [0.794, 1.086, 0.882], [1.019, 0.980, 0.653],
+		[0.905, 1.026, 1.277], [1.023, 0.908, 0.979], [0.741, 0.987, 1.001], [0.750, 0.750, 0.750]];
+
+		this.PaletteTables = new Array(2);
+		this.PaletteTables[0] = new Array(8);
+		this.PaletteTables[1] = new Array(8);
+		for(let i=0; i<8; i++) {
+			this.PaletteTables[0][i] = new Array(64);
+			this.PaletteTables[1][i] = new Array(64);
+			for(let j=0; j<64; j++) {
+				this.PaletteTables[0][i][j] = new Array(3);
+				this.PaletteTables[1][i][j] = new Array(3);
+				for(let k=0; k<3; k++) {
+					this.PaletteTables[0][i][j][k] = (this.PaletteTable[j][k] * this.PaletteTablesWeight[i][k]) | 0;
+					if(this.PaletteTables[0][i][j][k] > 0xFF)
+						this.PaletteTables[0][i][j][k] = 0xFF;
+
+					this.PaletteTables[1][i][j][k] = (this.PaletteTable[j & 0x30][k] * this.PaletteTablesWeight[i][k]) | 0;
+					if(this.PaletteTables[1][i][j][k] > 0xFF)
+						this.PaletteTables[1][i][j][k] = 0xFF;
+				}
+			}
+		}
+
+		this.BgLineBuffer = null;
+
+		this.SPBitArray = new Array(256);
+		for(let i=0; i<256; i++) {
+			this.SPBitArray[i] = new Array(256);
+			for(let j=0; j<256; j++) {
+				this.SPBitArray[i][j] = new Array(8);
+				for(let k=0; k<8; k++)
+					this.SPBitArray[i][j][k] = (((i << k) & 0x80) >>> 7) | (((j << k) & 0x80) >>> 6);
+			}
+		}
+
+		this.BGBitArray = new Array(256);
+		for(let i=0; i<256; i++) {
+			this.BGBitArray[i] = new Array(256);
+			for(let j=0; j<256; j++) {
+				this.BGBitArray[i][j] = new Array(4);
+				for(let k=0; k<4; k++) {
+					this.BGBitArray[i][j][k] = new Array(8);
+					for(let l=0; l<8; l++)
+						this.BGBitArray[i][j][k][l] = (k << 2) | this.SPBitArray[i][j][l];
+				}
+			}
+		}
+
+		this.PPUAddrAttrTable = new Array(1024);
+		this.PPUAddrAttrDataTable = new Array(1024);
+		for(let i=0; i<1024; i++) {
+			this.PPUAddrAttrTable[i]  = (((i & 0x0380) >> 4) | ((i & 0x001C) >> 2)) + 0x03C0;
+			this.PPUAddrAttrDataTable[i] = new Array(256);
+			let k = ((i & 0x0040) >> 4) | (i & 0x0002);
+			for(let j=0; j<256; j++)
+				this.PPUAddrAttrDataTable[i][j] = (((j << 2) >> k) & 0x0C) >> 2;
+		}
+
+		this.PpuX = 0;
+		this.PpuY = 0;
+
+		this.Canvas = null;
+		this.ctx = null;
+
+		this.ImageData = null;
+		this.DrawFlag = false;
+
+		this.Sprite0Line = false;
+		this.SpriteLimit = true;
+
+
+		/* **** APU **** */
+		this.MicrophoneStream = null;
+		this.isMicrophone = false;
+		this.MicrophoneSource = null;
+		this.MicrophoneJsNode = null;
+		this.MicrophoneGainNode = null;
+		this.MicrophoneOut = false;
+		this.MicrophoneVolume = 0.5;
+		this.MicrophoneLevel = 0.0;
+
+		this.WaveOut = true;
+		this.WaveProcessing = false;
+		this.WaveDatas = new Array();
+		this.WaveSampleRate = 24000;
+		this.WaveFrameSequence = 0;
+		this.WaveFrameSequenceCounter = 0;
+		this.WaveVolume = 0.5;
+
+		this.WaveCh1LengthCounter = 0;
+		this.WaveCh1Envelope = 0;
+		this.WaveCh1EnvelopeCounter = 0;
+		this.WaveCh1Sweep = 0;
+		this.WaveCh1Frequency = 0;
+		this.WaveCh1Counter = 0;
+		this.WaveCh1WaveCounter = 0;
+
+		this.WaveCh2LengthCounter = 0;
+		this.WaveCh2Envelope = 0;
+		this.WaveCh2EnvelopeCounter = 0;
+		this.WaveCh2Sweep = 0;
+		this.WaveCh2Frequency = 0;
+		this.WaveCh2Counter = 0;
+		this.WaveCh2WaveCounter = 0;
+
+		this.WaveCh3LengthCounter = 0;
+		this.WaveCh3LinearCounter = 0;
+		this.WaveCh3Counter = 0;
+		this.WaveCh3WaveCounter = 0;
+
+		this.WaveCh4LengthCounter = 0;
+		this.WaveCh4Envelope = 0;
+		this.WaveCh4EnvelopeCounter = 0;
+		this.WaveCh4Register = 0;
+		this.WaveCh4BitSequence = 0;
+		this.WaveCh4Counter = 0;
+
+		this.WaveCh5DeltaCounter = 0;
+		this.WaveCh5Register = 0;
+		this.WaveCh5SampleAddress = 0;
+		this.WaveCh5SampleCounter = 0;
+		this.WaveCh5Counter = 0;
+
+		this.ApuClockCounter = 0;
+
+		this.WaveLengthCount = [
+		0x0A, 0xFE, 0x14, 0x02, 0x28, 0x04, 0x50, 0x06,
+		0xA0, 0x08, 0x3C, 0x0A, 0x0E, 0x0C, 0x1A, 0x0E,
+		0x0C, 0x10, 0x18, 0x12, 0x30, 0x14, 0x60, 0x16,
+		0xC0, 0x18, 0x48, 0x1A, 0x10, 0x1C, 0x20, 0x1E];
+
+		this.WaveCh1_2DutyData = [4, 8, 16, 24];
+
+		this.WaveCh3SequenceData = [
+		  15,  13,  11,  9,   7,   5,   3,   1,
+		  -1,  -3,  -5, -7,  -9, -11, -13, -15,
+		 -15, -13, -11, -9,  -7,  -5,  -3,  -1,
+		   1,   3,   5,  7,   9,  11,  13,  15];
+
+		this.WaveCh4FrequencyData = [
+		0x004, 0x008, 0x010, 0x020,
+		0x040, 0x060, 0x080, 0x0A0,
+		0x0CA, 0x0FE, 0x17C, 0x1FC,
+		0x2FA, 0x3F8, 0x7F2, 0xFE4];
+
+		this.WaveCh5FrequencyData = [
+		0x1AC, 0x17C, 0x154, 0x140,
+		0x11E, 0x0FE, 0x0E2, 0x0D6,
+		0x0BE, 0x0A0, 0x08E, 0x080,
+		0x06A, 0x054, 0x048, 0x036];
+
+		this.WebAudioCtx = null;
+		this.WebAudioJsNode = null;
+		this.WebAudioGainNode = null;
+		this.WebAudioBufferSize = 1024;
+
+		this.ApuCpuClockCounter = 0;
+
+
+		/* **** JoyPad **** */
+		this.JoyPadStrobe = false;
+		this.JoyPadState = [0x00, 0x00];
+		this.JoyPadBuffer = [0x00, 0x00];
+
+		this.KeyUpFunction = (evt) => {
+			let i;
+			for(i=0; i<2; i++) {
+				let tmp = this.JoyPadKeyData[i].indexOf(evt.keyCode);
+				if(tmp != -1) {
+					this.JoyPadState[i] &= ~(0x01 << tmp);
+					break;
+				}
+			}
+			evt.preventDefault();
+		};
+
+		this.KeyDownFunction = (evt) => {
+			let i;
+			for(i=0; i<2; i++) {
+				let tmp = this.JoyPadKeyData[i].indexOf(evt.keyCode);
+				if(tmp != -1) {
+					this.JoyPadState[i] |= 0x01 << tmp;
+					break;
+				}
+			}
+			evt.preventDefault();
+		};
+
+		this.JoyPadKeyData = [
+			//A            B             SELECT   START   UP             DOWN           LEFT            RIGHT
+			[ 88/*X*/,     90/*Z*/,     65/*A*/, 83/*S*/, 38/*UP KEY*/, 40/*DOWN KEY*/, 37/*LEFT KEY*/, 39/*RIGHT KEY*/],
+			[105/*Num 7*/,103/*Num 9*/, -1,      -1,     104/*Num 8*/,  98/*Num 2*/,   100/*Num 4*/,   102/*Num 6*/]];
+
+		this.GamePadData = {};
+		this.GamePadData["STANDARD PAD"] = [
+			[{type:"B", index:1}, {type:"B", index:3}],// A
+			[{type:"B", index:0}, {type:"B", index:2}],// B
+			[{type:"B", index:8}],// SELECT
+			[{type:"B", index:9}],// START
+			[{type:"B", index:12}],// UP
+			[{type:"B", index:13}],// DOWN
+			[{type:"B", index:14}],// LEFT
+			[{type:"B", index:15}]];// RIGHT
+
+		this.GamePadData["UNKNOWN PAD"] = [
+			[{type:"B", index:1}],// A
+			[{type:"B", index:0}],// B
+			[{type:"B", index:2}],// SELECT
+			[{type:"B", index:3}],// START
+			[{type:"A-", index:1}],// UP
+			[{type:"A+", index:1}],// DOWN
+			[{type:"A-", index:0}],// LEFT
+			[{type:"A+", index:0}]];// RIGHT
+
+		this.GamePadData["HORI PAD 3 TURBO (Vendor: 0f0d Product: 0009)"] = [// Chrome
+			[{type:"B", index:2}, {type:"B", index:3}],// A
+			[{type:"B", index:1}, {type:"B", index:0}],// B
+			[{type:"B", index:8}],// SELECT
+			[{type:"B", index:9}],// START
+			[{type:"P", index:9}],// UP (POV)
+			[],// DOWN (POV)
+			[],// LEFT (POV)
+			[]];// RIGHT (POV)
+
+		this.GamePadData["0f0d-0009-HORI PAD 3 TURBO"] = [// Firefox
+			[{type:"B", index:2}, {type:"B", index:3}],// A
+			[{type:"B", index:1}, {type:"B", index:0}],// B
+			[{type:"B", index:8}],// SELECT
+			[{type:"B", index:9}],// START
+			[{type:"AB", index:6}],// UP
+			[{type:"AB", index:7}],// DOWN
+			[{type:"AB", index:5}],// LEFT
+			[{type:"AB", index:4}]];// RIGHT
+
+		this.GamePadPovData = [0x10, 0x10|0x80, 0x80, 0x20|0x80, 0x20, 0x20|0x40, 0x40, 0x10|0x40];
+
+		/* **** Mapper **** */
+		this.Mapper = null;
+
+
+		/**** MapperBase ****/
+		this.MapperBase = class  {
+			constructor(core) {
+				this.Core = core;
+				this.MAPPER_REG = null;
+			}
+
+			Init() {
+			}
+
+			ReadLow(address) {
+				return 0x40;
+			}
+
+			WriteLow(address, data) {
+			}
+
+			ReadPPUData() {
+				return this.Core.ReadPPUData_SUB();
+			}
+
+			WritePPUData(value) {
+				this.Core.WritePPUData_SUB(value);
+			}
+
+			BuildBGLine() {
+				this.Core.BuildBGLine_SUB();
+			}
+
+			BuildSpriteLine() {
+				this.Core.BuildSpriteLine_SUB();
+			}
+
+			ReadSRAM(address) {
+				return this.Core.SRAM[address & 0x1FFF];
+			}
+
+			WriteSRAM(address, data) {
+				this.Core.SRAM[address & 0x1FFF] = data;
+			}
+
+			Write(address, data) {
+			}
+
+			HSync(y) {
+			}
+
+			CPUSync(clock) {
+			}
+
+			SetIRQ() {
+				this.Core.toIRQ |= 0x04;
+			}
+
+			ClearIRQ() {
+				this.Core.toIRQ &= ~0x04;
+			}
+		}
+
+
+		/**** Mapper0 ****/
+		this.Mapper0 = class extends this.MapperBase {
+			constructor(core) {
+				super(core);
+			}
+
+			Init() {
+				this.Core.SetPrgRomPage(0, 0);
+				this.Core.SetPrgRomPage(1, this.Core.PrgRomPageCount - 1);
+				this.Core.SetChrRomPage(0);
+			}
+		}
+
+
+		/**** Mapper1 ****/
+		this.Mapper1 = class extends this.MapperBase {
+			constructor(core) {
+				super(core);
+				this.MAPPER_REG = new Array(16);
+			}
+
+			Init() {
+				this.Core.PPUChrAreaWrite = true;
+
+				this.MAPPER_REG.fill(0);
+
+				this.MAPPER_REG[13] = 0;
+				this.MAPPER_REG[14] = 0x00;
+				this.MAPPER_REG[0] = 0x0C;
+				this.MAPPER_REG[1] = 0x00;
+				this.MAPPER_REG[2] = 0x00;
+				this.MAPPER_REG[3] = 0x00;
+
+				if(this.Core.PrgRomPageCount == 64) {
+					this.MAPPER_REG[10] = 2;
+				} else if(this.Core.PrgRomPageCount == 32) {
+					this.MAPPER_REG[10] = 1;
+				} else {
+					this.MAPPER_REG[10] = 0;
+				}
+				this.MAPPER_REG[11] = 0;
+				this.MAPPER_REG[12] = 0;
+
+				if(this.MAPPER_REG[10] == 0) {
+					this.MAPPER_REG[8] = this.Core.PrgRomPageCount * 2 - 2;
+					this.MAPPER_REG[9] = this.Core.PrgRomPageCount * 2 - 1;
+				} else {
+					this.MAPPER_REG[8] = 30;
+					this.MAPPER_REG[9] = 31;
+				}
+
+				this.MAPPER_REG[4] = 0;
+				this.MAPPER_REG[5] = 1;
+				this.MAPPER_REG[6] = this.MAPPER_REG[8];
+				this.MAPPER_REG[7] = this.MAPPER_REG[9];
+
+				this.Core.SetPrgRomPages8K(this.MAPPER_REG[4], this.MAPPER_REG[5], this.MAPPER_REG[6], this.MAPPER_REG[7]);
+			}
+
+			Write(address, data) {
+				let reg_num;
+
+				if((address & 0x6000) != (this.MAPPER_REG[15] & 0x6000)) {
+					this.MAPPER_REG[13] = 0;
+					this.MAPPER_REG[14] = 0x00;
+				}
+				this.MAPPER_REG[15] = address;
+
+				if((data & 0x80) != 0) {
+					this.MAPPER_REG[13] = 0;
+					this.MAPPER_REG[14] = 0x00;
+					return;
+				}
+
+				if((data & 0x01) != 0)
+					this.MAPPER_REG[14] |= (1 << this.MAPPER_REG[13]);
+					this.MAPPER_REG[13]++;
+				if(this.MAPPER_REG[13] < 5)
+					return;
+
+				reg_num = (address & 0x7FFF) >> 13;
+				this.MAPPER_REG[reg_num] = this.MAPPER_REG[14];
+
+				this.MAPPER_REG[13] = 0;
+				this.MAPPER_REG[14] = 0x00;
+
+				let bank_num;
+
+				switch (reg_num) {
+					case 0 :
+						if((this.MAPPER_REG[0] & 0x02) != 0) {
+							if((this.MAPPER_REG[0] & 0x01) != 0) {
+								this.Core.SetMirror(true);
+							} else {
+								this.Core.SetMirror(false);
+							}
+						} else {
+							if((this.MAPPER_REG[0] & 0x01) != 0) {
+								this.Core.SetMirrors(1, 1, 1, 1);
+							} else {
+								this.Core.SetMirrors(0, 0, 0, 0);
+							}
+						}
+						break;
+
+					case 1 :
+						bank_num = this.MAPPER_REG[1];
+						if(this.MAPPER_REG[10] == 2) {
+							if((this.MAPPER_REG[0] & 0x10) != 0) {
+								if(this.MAPPER_REG[12] != 0) {
+									this.MAPPER_REG[11] = (this.MAPPER_REG[1] & 0x10) >> 4;
+									if((this.MAPPER_REG[0] & 0x08) != 0) {
+										this.MAPPER_REG[11] |= ((this.MAPPER_REG[2] & 0x10) >> 3);
+									}
+									this.SetPrgRomPages8K_Mapper01();
+									this.MAPPER_REG[12] = 0;
+								} else {
+									this.MAPPER_REG[12] = 1;
+								}
+							} else {
+								this.MAPPER_REG[11] = (this.MAPPER_REG[1] & 0x10) != 0 ? 3 : 0;
+								this.SetPrgRomPages8K_Mapper01();
+							}
+						} else if((this.MAPPER_REG[10] == 1) && (this.Core.ChrRomPageCount == 0)) {
+							this.MAPPER_REG[11] = (this.MAPPER_REG[1] & 0x10) >> 4;
+							this.SetPrgRomPages8K_Mapper01();
+						} else if(this.Core.ChrRomPageCount != 0) {
+			    				if((this.MAPPER_REG[0] & 0x10) != 0) {
+								bank_num <<= 2;
+								this.Core.SetChrRomPage1K(0, bank_num + 0);
+								this.Core.SetChrRomPage1K(1, bank_num + 1);
+								this.Core.SetChrRomPage1K(2, bank_num + 2);
+								this.Core.SetChrRomPage1K(3, bank_num + 3);
+							} else {
+								bank_num <<= 2;
+								this.Core.SetChrRomPages1K(bank_num + 0, bank_num + 1, bank_num + 2, bank_num + 3,
+											 bank_num + 4, bank_num + 5, bank_num + 6, bank_num + 7);
+							}
+						} else {
+							if((this.MAPPER_REG[0] & 0x10) != 0) {
+								bank_num <<= 2;
+								this.Core.VRAM[0] = this.Core.VRAMS[bank_num + 0];
+								this.Core.VRAM[1] = this.Core.VRAMS[bank_num + 1];
+								this.Core.VRAM[2] = this.Core.VRAMS[bank_num + 2];
+								this.Core.VRAM[3] = this.Core.VRAMS[bank_num + 3];
+							}
+						}
+				                break;
+
+					case 2 :
+						bank_num = this.MAPPER_REG[2];
+
+						if((this.MAPPER_REG[10] == 2) && (this.MAPPER_REG[0] & 0x08) != 0) {
+							if(this.MAPPER_REG[12] != 0) {
+								this.MAPPER_REG[11] = (this.MAPPER_REG[1] & 0x10) >> 4;
+								this.MAPPER_REG[11] |= ((this.MAPPER_REG[2] & 0x10) >> 3);
+								this.SetPrgRomPages8K_Mapper01();
+								this.MAPPER_REG[12] = 0;
+							} else {
+								this.MAPPER_REG[12] = 1;
+							}
+						}
+
+						if(this.Core.ChrRomPageCount == 0) {
+							if((this.MAPPER_REG[0] & 0x10) != 0) {
+								bank_num <<= 2;
+								this.Core.VRAM[4] = this.Core.VRAMS[bank_num + 0];
+								this.Core.VRAM[5] = this.Core.VRAMS[bank_num + 1];
+								this.Core.VRAM[6] = this.Core.VRAMS[bank_num + 2];
+								this.Core.VRAM[7] = this.Core.VRAMS[bank_num + 3];
+								break;
+							}
+						}
+
+						if((this.MAPPER_REG[0] & 0x10) != 0) {
+								bank_num <<= 2;
+								this.Core.SetChrRomPage1K(4, bank_num + 0);
+								this.Core.SetChrRomPage1K(5, bank_num + 1);
+								this.Core.SetChrRomPage1K(6, bank_num + 2);
+								this.Core.SetChrRomPage1K(7, bank_num + 3);
+						}
+						break;
+
+
+					case 3 :
+						bank_num = this.MAPPER_REG[3];
+
+						if((this.MAPPER_REG[0] & 0x08) != 0) {
+							bank_num <<= 1;
+
+							if((this.MAPPER_REG[0] & 0x04) != 0) {
+								this.MAPPER_REG[4] = bank_num;
+								this.MAPPER_REG[5] = bank_num + 1;
+								this.MAPPER_REG[6] = this.MAPPER_REG[8];
+								this.MAPPER_REG[7] = this.MAPPER_REG[9];
+							} else {
+								if(this.MAPPER_REG[10] == 0) {
+									this.MAPPER_REG[4] = 0;
+									this.MAPPER_REG[5] = 1;
+									this.MAPPER_REG[6] = bank_num;
+									this.MAPPER_REG[7] = bank_num + 1;
+								}
+							}
+						} else {
+				                        bank_num <<= 1;
+							this.MAPPER_REG[4] = bank_num;
+							this.MAPPER_REG[5] = bank_num + 1;
+							if(this.MAPPER_REG[10] == 0) {
+								this.MAPPER_REG[6] = bank_num + 2;
+								this.MAPPER_REG[7] = bank_num + 3;
+							}
+						}
+
+						this.SetPrgRomPages8K_Mapper01();
+						break;
+				}
+			}
+
+			SetPrgRomPages8K_Mapper01 (){
+				this.Core.SetPrgRomPage8K(0, (this.MAPPER_REG[11] << 5) + (this.MAPPER_REG[4] & 31));
+				this.Core.SetPrgRomPage8K(1, (this.MAPPER_REG[11] << 5) + (this.MAPPER_REG[5] & 31));
+				this.Core.SetPrgRomPage8K(2, (this.MAPPER_REG[11] << 5) + (this.MAPPER_REG[6] & 31));
+				this.Core.SetPrgRomPage8K(3, (this.MAPPER_REG[11] << 5) + (this.MAPPER_REG[7] & 31));
+			}
+		}
+
+
+		/**** Mapper2 ****/
+		this.Mapper2 = class extends this.MapperBase {
+			constructor(core) {
+				super(core);
+			}
+
+			Init() {
+				this.Core.PPUChrAreaWrite = true;
+
+				this.Core.SetPrgRomPage(0, 0);
+				this.Core.SetPrgRomPage(1, this.Core.PrgRomPageCount - 1);
+				this.Core.SetChrRomPage(0);
+			}
+
+			Write(address, data) {
+				this.Core.SetPrgRomPage(0, data);
+			}
+		}
+
+
+		/**** Mapper3 ****/
+		this.Mapper3 = class extends this.MapperBase {
+			constructor(core) {
+				super(core);
+			}
+
+			Init() {
+				this.Core.SetPrgRomPage(0, 0);
+				this.Core.SetPrgRomPage(1, this.Core.PrgRomPageCount - 1);
+				this.Core.SetChrRomPage(0);
+			}
+
+			Write(address, data) {
+				this.Core.SetChrRomPage(data & 0x0F);
+			}
+		}
+
+
+		/**** Mapper4 ****/
+		this.Mapper4 = class extends this.MapperBase {
+			constructor(core) {
+				super(core);
+				this.MAPPER_REG = new Array(21);
+			}
+
+			Init() {
+				this.MAPPER_REG.fill(0);
+
+				this.MAPPER_REG[16] = 0;
+				this.MAPPER_REG[17] = 1;
+				this.MAPPER_REG[18] = (this.Core.PrgRomPageCount - 1) * 2;
+				this.MAPPER_REG[19] = (this.Core.PrgRomPageCount - 1) * 2 + 1;
+				this.Core.SetPrgRomPages8K(this.MAPPER_REG[16], this.MAPPER_REG[17], this.MAPPER_REG[18], this.MAPPER_REG[19]);
+
+				this.MAPPER_REG[8] = 0;
+				this.MAPPER_REG[9] = 1;
+				this.MAPPER_REG[10] = 2;
+				this.MAPPER_REG[11] = 3;
+				this.MAPPER_REG[12] = 4;
+				this.MAPPER_REG[13] = 5;
+				this.MAPPER_REG[14] = 6;
+				this.MAPPER_REG[15] = 7;
+				this.Core.SetChrRomPages1K(this.MAPPER_REG[8], this.MAPPER_REG[9], this.MAPPER_REG[10], this.MAPPER_REG[11],
+							this.MAPPER_REG[12], this.MAPPER_REG[13], this.MAPPER_REG[14], this.MAPPER_REG[15]);
+			}
+
+			Write(address, data) {
+				switch (address & 0xE001) {
+					case 0x8000:
+						this.MAPPER_REG[0] = data;
+						if((data & 0x80) == 0x80) {
+							this.Core.SetChrRomPages1K(this.MAPPER_REG[12], this.MAPPER_REG[13], this.MAPPER_REG[14], this.MAPPER_REG[15], 
+										this.MAPPER_REG[8], this.MAPPER_REG[9], this.MAPPER_REG[10], this.MAPPER_REG[11]); 
+						} else {
+							this.Core.SetChrRomPages1K(this.MAPPER_REG[8], this.MAPPER_REG[9], this.MAPPER_REG[10], this.MAPPER_REG[11], 
+										this.MAPPER_REG[12], this.MAPPER_REG[13], this.MAPPER_REG[14], this.MAPPER_REG[15]); 
+						}
+
+						if((data & 0x40) == 0x40) {
+							this.Core.SetPrgRomPages8K(this.MAPPER_REG[18], this.MAPPER_REG[17], this.MAPPER_REG[16],this.MAPPER_REG[19]);
+						} else {
+							this.Core.SetPrgRomPages8K(this.MAPPER_REG[16], this.MAPPER_REG[17], this.MAPPER_REG[18],this.MAPPER_REG[19]);
+						}
+						break;
+					case 0x8001:
+						this.MAPPER_REG[1] = data;
+						switch (this.MAPPER_REG[0] & 0x07) {
+							case 0:
+								data &= 0xFE;
+								this.MAPPER_REG[8] = data;
+								this.MAPPER_REG[9] = data + 1;
+								break;
+							case 1:
+								data &= 0xFE;
+								this.MAPPER_REG[10] = data;
+								this.MAPPER_REG[11] = data + 1;
+								break;
+							case 2:
+								this.MAPPER_REG[12] = data;
+								break;
+							case 3:
+								this.MAPPER_REG[13] = data;
+								break;
+							case 4:
+								this.MAPPER_REG[14] = data;
+								break;
+							case 5:
+								this.MAPPER_REG[15] = data;
+								break;
+							case 6:
+								this.MAPPER_REG[16] = data;
+								break;
+							case 7:
+								this.MAPPER_REG[17] = data;
+								break;
+						}
+
+						if((this.MAPPER_REG[0] & 0x80) == 0x80) {
+							this.Core.SetChrRomPages1K(this.MAPPER_REG[12], this.MAPPER_REG[13], this.MAPPER_REG[14], this.MAPPER_REG[15], 
+										this.MAPPER_REG[8], this.MAPPER_REG[9], this.MAPPER_REG[10], this.MAPPER_REG[11]); 
+						} else {
+							this.Core.SetChrRomPages1K(this.MAPPER_REG[8], this.MAPPER_REG[9], this.MAPPER_REG[10], this.MAPPER_REG[11], 
+										this.MAPPER_REG[12], this.MAPPER_REG[13], this.MAPPER_REG[14], this.MAPPER_REG[15]); 
+						}
+
+						if((this.MAPPER_REG[0] & 0x40) == 0x40) {
+							this.Core.SetPrgRomPages8K(this.MAPPER_REG[18], this.MAPPER_REG[17], this.MAPPER_REG[16],this.MAPPER_REG[19]);
+						} else {
+							this.Core.SetPrgRomPages8K(this.MAPPER_REG[16], this.MAPPER_REG[17], this.MAPPER_REG[18],this.MAPPER_REG[19]);
+						}
+						break;
+
+					case 0xA000:
+						if((data & 0x01) == 0x01)
+							this.Core.SetMirror(true);
+						else
+							this.Core.SetMirror(false);
+						this.MAPPER_REG[2] = data;
+						break;
+					case 0xA001:
+						this.MAPPER_REG[3] = data;
+						break;
+
+					case 0xC000:
+						this.MAPPER_REG[4] = data;
+						break;
+					case 0xC001:
+						this.MAPPER_REG[5] = 1;
+						break;
+
+					case 0xE000:
+						this.MAPPER_REG[7] = 0;
+						this.ClearIRQ();
+						break;
+					case 0xE001:
+						this.MAPPER_REG[7] = 1;
+						break;
+				}
+			}
+
+			HSync(y) {
+				if(y < 240 && (this.Core.IO1[0x01] & 0x08) == 0x08) {
+					if(this.MAPPER_REG[20] == 0 || this.MAPPER_REG[5] == 1) {
+						this.MAPPER_REG[20] = this.MAPPER_REG[4];
+						this.MAPPER_REG[5] = 0;
+					} else
+						this.MAPPER_REG[20]--;
+
+					if(this.MAPPER_REG[20] == 0){
+						if(this.MAPPER_REG[7] == 1) {
+							this.SetIRQ();
+						}
+					}
+				}
+			}
+		}
+	}
+
+
+	RequestAnimationFrame() {
 		if(this.Use_requestAnimationFrame)
 			this.UpdateAnimationFrame();
 	}
 
 
-	this.CancelAnimationFrame = function (){
+	CancelAnimationFrame() {
 		if(this.Use_requestAnimationFrame)
 			window.cancelAnimationFrame(this.TimerID);
 	}
 
 
-	this.UpdateAnimationFrame = function () {
+	UpdateAnimationFrame() {
 		this.TimerID = window.requestAnimationFrame(this.UpdateAnimationFrame.bind(this));
 		this.Run();
 	}
 
 
-	this.Run = function () {
+	Run() {
 		this.WaveProcessing = true;
 		this.CheckGamePad();
 		this.CpuRun();
 	}
 
 
-	this.isRunning = function () {
+	isRunning() {
 		if(this.TimerID != null)
 			return true;
 		return false;
 	}
 
 
-	this.Start = function () {
+	Start() {
 		if(this.Mapper != null && this.TimerID == null) {
 			this.JoyPadInit();
 			this.RequestAnimationFrame();
@@ -51,7 +882,7 @@ function FC() {
 	}
 
 
-	this.Pause = function () {
+	Pause() {
 		if(this.Mapper != null && this.TimerID != null) {
 			this.CancelAnimationFrame();
 			this.JoyPadRelease();
@@ -62,7 +893,7 @@ function FC() {
 	}
 
 
-	this.Init = function () {
+	Init() {
 		this.ParseHeader();
 		this.StorageClear();
 		this.StorageInit();
@@ -82,7 +913,7 @@ function FC() {
 	}
 
 
-	this.Reset = function () {
+	Reset() {
 		if(this.Mapper != null) {
 			this.Pause();
 			this.PpuInit();
@@ -96,53 +927,240 @@ function FC() {
 	}
 
 
-/* **** CPU **** */
-	this.CycleTable = [
-	 7, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 4, 4, 6, 6, //0x00
-	 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 6, 7, //0x10
-	 6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 4, 4, 6, 6, //0x20
-	 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 6, 7, //0x30
-	 6, 6, 2, 8, 3, 3, 5, 5, 3, 2, 2, 2, 3, 4, 6, 6, //0x40
-	 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 6, 7, //0x50
-	 6, 6, 2, 8, 3, 3, 5, 5, 4, 2, 2, 2, 5, 4, 6, 6, //0x60
-	 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 6, 7, //0x70
-	 2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, //0x80
-	 2, 6, 2, 6, 4, 4, 4, 4, 2, 4, 2, 5, 5, 4, 5, 5, //0x90
-	 2, 6, 2, 6, 3, 3, 3, 3, 2, 2, 2, 2, 4, 4, 4, 4, //0xA0
-	 2, 5, 2, 5, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, //0xB0
-	 2, 6, 2, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, //0xC0
-	 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7, //0xD0
-	 2, 6, 3, 8, 3, 3, 5, 5, 2, 2, 2, 2, 4, 4, 6, 6, //0xE0
-	 2, 5, 2, 8, 4, 4, 6, 6, 2, 4, 2, 7, 4, 4, 7, 7];//0xF0
+	/* **** Header **** */
+	ParseHeader() {
+		if(this.Rom.length < 0x10 || this.Rom[0] != 0x4E || this.Rom[1] != 0x45 ||  this.Rom[2] != 0x53 || this.Rom[3] != 0x1A)
+			return false;
 
-	this.MainClock = 1789773;
+		this.PrgRomPageCount = this.Rom[4]
+		this.ChrRomPageCount = this.Rom[5];
+		this.HMirror  = (this.Rom[6] & 0x01) == 0;
+		this.VMirror  = (this.Rom[6] & 0x01) != 0;
+		this.SramEnable = (this.Rom[6] & 0x02) != 0;
+		this.TrainerEnable = (this.Rom[6] & 0x04) != 0;
+		this.FourScreen = (this.Rom[6] & 0x08) != 0;
+		this.MapperNumber = (this.Rom[6] >> 4) | (this.Rom[7] & 0xF0);
 
-	this.A = 0;
-	this.X = 0;
-	this.Y = 0;
-	this.S = 0;
-	this.P = 0;
-	this.PC = 0;
-
-	this.toNMI = false;
-	this.toIRQ = 0x00;
-	this.CPUClock = 0;
-
-	//this.HalfCarry = false;
-
-	this.ZNCacheTable = new Array(256);
-	this.ZNCacheTable[0] = 0x02;
-	for(let i=1; i<256; i++)
-		this.ZNCacheTable[i] = i & 0x80;
-
-	this.ZNCacheTableCMP = new Array(512);
-	for(let i=0; i<256; i++) {
-		this.ZNCacheTableCMP[i] = this.ZNCacheTable[i] | 0x01;
-		this.ZNCacheTableCMP[i + 256] = this.ZNCacheTable[i];
+		return true;
 	}
 
 
-	this.CpuInit = function () {
+	/* **** Storage **** */
+	StorageClear() {
+		let i;
+
+		this.RAM.fill(0);
+
+		this.INNERSRAM.fill(0);
+		this.SRAM = this.INNERSRAM;
+
+		this.PRGROM_STATE.fill(0);
+		this.CHRROM_STATE.fill(0);
+
+		for(i=0; i<this.VRAMS.length; i++) {
+			this.VRAMS[i].fill(0);
+			this.SetChrRomPage1K(i, i + 0x0100);
+		}
+
+		this.SPRITE_RAM.fill(0);
+
+		for(i=0; i<this.ROM_RAM.length; i++) {
+			this.ROM_RAM[i].fill(0);
+			this.SetPrgRomPage8K(i, -(i + 1));
+		}
+
+		this.IO1.fill(0);
+		this.IO2.fill(0);
+		this.IO2[0x17] = 0x40;
+	}
+
+
+	SetRom(rom) {
+		this.Rom = rom.concat(0);
+	}
+
+
+	StorageInit() {
+		this.PRGROM_PAGES = null;
+		this.CHRROM_PAGES = null;
+
+		let i;
+		this.PRGROM_PAGES = new Array(this.PrgRomPageCount * 2);
+		for(i=0; i< this.PrgRomPageCount * 2; i++)
+			this.PRGROM_PAGES[i] = this.Rom.slice(i * 0x2000 + 0x0010, i * 0x2000 + 0x2010);
+
+		if(this.ChrRomPageCount > 0) {
+			this.CHRROM_PAGES = new Array(this.ChrRomPageCount * 8);
+			for(i=0; i< this.ChrRomPageCount * 8; i++)
+				this.CHRROM_PAGES[i] = this.Rom.slice(this.PrgRomPageCount * 0x4000 + i * 0x0400 + 0x0010,
+								this.PrgRomPageCount * 0x4000 + i * 0x0400 + 0x0410);
+		}
+	}
+
+
+	Get(address) {
+		switch(address & 0xE000) {
+			case 0x0000:
+				return this.RAM[address & 0x7FF];
+			case 0x2000:
+				switch (address & 0x07) {
+					case 0x02:
+						return this.ReadPPUStatus();
+					case 0x07:
+						return this.Mapper.ReadPPUData();
+				}
+				return 0;
+			case 0x4000:
+				switch (address) {
+					case 0x4015:
+						return this.ReadWaveControl();
+					case 0x4016:
+						return this.ReadJoyPadRegister1();
+					case 0x4017:
+						return this.ReadJoyPadRegister2();
+					default:
+						return this.Mapper.ReadLow(address);
+				}
+			case 0x6000:
+				return this.Mapper.ReadSRAM(address);
+			case 0x8000:
+				return this.ROM0[address & 0x1FFF];
+			case 0xA000:
+				return this.ROM1[address & 0x1FFF];
+			case 0xC000:
+				return this.ROM2[address & 0x1FFF];
+			case 0xE000:
+				return this.ROM3[address & 0x1FFF];
+		}
+	}
+
+
+	Get16(address) {
+		return this.Get(address) | (this.Get(address + 1) << 8);
+	}
+
+
+	Set(address, data) {
+		switch(address & 0xE000) {
+			case 0x0000:
+				this.RAM[address & 0x7FF] = data;
+				return;
+			case 0x2000:
+				switch (address & 0x07) {
+					case 0:
+						this.WritePPUControlRegister0(data);
+						return;
+					case 1:
+						this.WritePPUControlRegister1(data);
+						return;
+					case 2:
+						return;
+					case 3:
+						this.WriteSpriteAddressRegister(data);
+						return;
+					case 4:
+						this.WriteSpriteData(data);
+						return;
+					case 5:
+						this.WriteScrollRegister(data);
+						return;
+					case 6:
+						this.WritePPUAddressRegister(data);
+						return;
+					case 7:
+						this.Mapper.WritePPUData(data);
+						return;
+				}
+			case 0x4000:
+				if(address < 0x4020) {
+					this.IO2[address & 0x00FF] = data;
+					switch (address) {
+						case 0x4002:
+							this.WriteCh1Length0();
+							return;
+						case 0x4003:
+							this.WriteCh1Length1();
+							return;
+						case 0x4006:
+							this.WriteCh2Length0();
+							return;
+						case 0x4007:
+							this.WriteCh2Length1();
+							return;
+						case 0x4008:
+							this.WriteCh3LinearCounter();
+							return;
+						case 0x400B:
+							this.WriteCh3Length1();
+							return;
+						case 0x400F:
+							this.WriteCh4Length1();
+							return;
+						case 0x4010:
+							this.WriteCh5DeltaControl();
+							return;
+						case 0x4011:
+							this.WriteCh5DeltaCounter();
+							return;
+						case 0x4014:
+							this.StartDMA(data);
+							return;
+						case 0x4015:
+							this.WriteWaveControl();
+							return;
+						case 0x4016:
+							this.WriteJoyPadRegister1(data);
+							return;
+					}
+					return;
+				}
+				this.Mapper.WriteLow(address, data);
+				return;
+			case 0x6000:
+				this.Mapper.WriteSRAM(address, data);
+				return;
+			case 0x8000:
+			case 0xA000:
+			case 0xC000:
+			case 0xE000:
+				this.Mapper.Write(address, data);
+				return;
+		}
+	}
+
+
+	SetPrgRomPage8K(page, romPage){
+		if(romPage < 0) {
+			this.PRGROM_STATE[page] = romPage;
+			this.ROM[page] = this.ROM_RAM[-(romPage + 1)];
+		} else {
+			this.PRGROM_STATE[page] = romPage % (this.PrgRomPageCount * 2);
+			this.ROM[page] = this.PRGROM_PAGES[this.PRGROM_STATE[page]];
+		}
+
+		this.ROM0 = this.ROM[0];
+		this.ROM1 = this.ROM[1];
+		this.ROM2 = this.ROM[2];
+		this.ROM3 = this.ROM[3];
+	}
+
+
+	SetPrgRomPages8K(romPage0, romPage1, romPage2, romPage3){
+		this.SetPrgRomPage8K(0, romPage0);
+		this.SetPrgRomPage8K(1, romPage1);
+		this.SetPrgRomPage8K(2, romPage2);
+		this.SetPrgRomPage8K(3, romPage3);
+	}
+
+
+	SetPrgRomPage(no, num){
+		this.SetPrgRomPage8K(no * 2, num * 2);
+		this.SetPrgRomPage8K(no * 2 + 1, num * 2 + 1);
+	}
+
+
+	/* **** CPU **** */
+	CpuInit() {
 		this.A = 0;
 		this.X = 0;
 		this.Y = 0;
@@ -156,7 +1174,7 @@ function FC() {
 	}
 
 
-	this.CpuReset = function () {
+	CpuReset() {
 		this.S = (this.S - 3) & 0xFF;
 		this.P |= 0x04;
 		this.toNMI = false;
@@ -167,7 +1185,7 @@ function FC() {
 	}
 
 
-	this.NMI = function () {
+	NMI() {
 		this.CPUClock += 7;
 		this.Push((this.PC >> 8) & 0xFF);
 		this.Push(this.PC & 0xFF);
@@ -177,7 +1195,7 @@ function FC() {
 	}
 
 
-	this.IRQ = function () {
+	IRQ() {
 		this.CPUClock += 7;
 		this.Push((this.PC >> 8) & 0xFF);
 		this.Push(this.PC & 0xFF);
@@ -187,38 +1205,38 @@ function FC() {
 	}
 
 
-	this.GetAddressZeroPage = function () {
+	GetAddressZeroPage() {
 		return this.Get(this.PC++);
 	}
 
 
-	this.GetAddressImmediate = function () {
+	GetAddressImmediate() {
 		return this.PC++;
 	}
 
 
-	this.GetAddressAbsolute = function () {
+	GetAddressAbsolute() {
 		return this.Get(this.PC++) | (this.Get(this.PC++) << 8);
 	}
 
 
-	this.GetAddressZeroPageX = function () {
+	GetAddressZeroPageX() {
 		return (this.X + this.Get(this.PC++)) & 0xFF;
 	}
 
 
-	this.GetAddressZeroPageY = function () {
+	GetAddressZeroPageY() {
 		return (this.Y + this.Get(this.PC++)) & 0xFF;
 	}
 
 
-	this.GetAddressIndirectX = function () {
+	GetAddressIndirectX() {
 		let tmp = (this.Get(this.PC++) + this.X) & 0xFF;
 		return this.Get(tmp) | (this.Get((tmp + 1) & 0xFF) << 8);
 	}
 
 
-	this.GetAddressIndirectY = function () {
+	GetAddressIndirectY() {
 		let tmp = this.Get(this.PC++);
 		tmp = this.Get(tmp) | (this.Get((tmp + 1) & 0xFF) << 8);
 		let address = tmp + this.Y;
@@ -228,7 +1246,7 @@ function FC() {
 	}
 
 
-	this.GetAddressAbsoluteX = function () {
+	GetAddressAbsoluteX() {
 		let tmp = this.Get(this.PC++) | (this.Get(this.PC++) << 8);
 		let address = tmp + this.X;
 		if(((address ^ tmp) & 0x100) > 0)
@@ -237,7 +1255,7 @@ function FC() {
 	}
 
 
-	this.GetAddressAbsoluteY = function () {
+	GetAddressAbsoluteY() {
 		let tmp = this.Get(this.PC++) | (this.Get(this.PC++) << 8);
 		let address = tmp + this.Y;
 		if(((address ^ tmp) & 0x100) > 0)
@@ -246,52 +1264,52 @@ function FC() {
 	}
 
 
-	this.Push = function (data) {
+	Push(data) {
 		this.RAM[0x100 + this.S] = data;
 		this.S = (this.S - 1) & 0xFF;
 	}
 
 
-	this.Pop = function () {
+	Pop() {
 		this.S = (this.S + 1) & 0xFF;
 		return this.RAM[0x100 + this.S];
 	}
 
 
-	this.LDA = function (address) {
+	LDA(address) {
 		this.A = this.Get(address);
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.A];
 	}
 
 
-	this.LDX = function (address) {
+	LDX(address) {
 		this.X = this.Get(address);
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.X];
 	}
 
 
-	this.LDY = function (address) {
+	LDY(address) {
 		this.Y = this.Get(address);
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.Y];
 	}
 
 
-	this.STA = function (address) {
+	STA(address) {
 		this.Set(address, this.A);
 	}
 
 
-	this.STX = function (address) {
+	STX(address) {
 		this.Set(address, this.X);
 	}
 
 
-	this.STY = function (address) {
+	STY(address) {
 		this.Set(address, this.Y);
 	}
 
 
-	this.Adder = function (data1) {
+	Adder(data1) {
 		/*let data0 = this.A;
 		this.HalfCarry = ((data0 & 0x0F) + (data1 & 0x0F) + (this.P & 0x01)) >= 0x10 ? true : false;
 		let tmp = data0 + data1 + (this.P & 0x01);
@@ -305,7 +1323,7 @@ function FC() {
 	}
 
 
-	this.ADC = function (address) {
+	ADC(address) {
 		this.Adder(this.Get(address));
 
 		/*if((this.P & 0x08) == 0x08) {
@@ -321,7 +1339,7 @@ function FC() {
 	}
 
 
-	this.SBC = function (address) {
+	SBC(address) {
 		this.Adder(~this.Get(address) & 0xFF);
 
 		/*if((this.P & 0x08) == 0x08) {
@@ -333,46 +1351,46 @@ function FC() {
 	}
 
 
-	this.CMP = function (address) {
+	CMP(address) {
 		this.P = this.P & 0x7C | this.ZNCacheTableCMP[(this.A - this.Get(address)) & 0x1FF];
 	}
 
 
-	this.CPX = function (address) {
+	CPX(address) {
 		this.P = this.P & 0x7C | this.ZNCacheTableCMP[(this.X - this.Get(address)) & 0x1FF];
 	}
 
 
-	this.CPY = function (address) {
+	CPY(address) {
 		this.P = this.P & 0x7C | this.ZNCacheTableCMP[(this.Y - this.Get(address)) & 0x1FF];
 	}
 
 
-	this.AND = function (address) {
+	AND(address) {
 		this.A &= this.Get(address);
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.A];
 	}
 
 
-	this.EOR = function (address) {
+	EOR(address) {
 		this.A ^= this.Get(address);
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.A];
 	}
 
 
-	this.ORA = function (address) {
+	ORA(address) {
 		this.A |= this.Get(address);
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.A];
 	}
 
 
-	this.BIT = function (address) {
+	BIT(address) {
 		let x = this.Get(address);
 		this.P = this.P & 0x3D | this.ZNCacheTable[x & this.A] & 0x02 | x & 0xC0;
 	}
 
 
-	this.ASL_Sub = function (data) {
+	ASL_Sub(data) {
 		this.P = this.P & 0xFE | (data >> 7);
 		data = (data << 1) & 0xFF;
 		this.P = this.P & 0x7D | this.ZNCacheTable[data];
@@ -380,12 +1398,12 @@ function FC() {
 	}
 
 
-	this.ASL = function (address) {
+	ASL(address) {
 		this.Set(address, this.ASL_Sub(this.Get(address)));
 	}
 
 
-	this.LSR_Sub = function (data) {
+	LSR_Sub(data) {
 		this.P = this.P & 0x7C | data & 0x01;
 		data >>= 1;
 		this.P |= this.ZNCacheTable[data];
@@ -393,12 +1411,12 @@ function FC() {
 	}
 
 
-	this.LSR = function (address) {
+	LSR(address) {
 		this.Set(address, this.LSR_Sub(this.Get(address)));
 	}
 
 
-	this.ROL_Sub = function (data) {
+	ROL_Sub(data) {
 		let carry = data >> 7;
 		data = (data << 1) & 0xFF | this.P & 0x01;
 		this.P = this.P & 0x7C | carry | this.ZNCacheTable[data];
@@ -406,12 +1424,12 @@ function FC() {
 	}
 
 
-	this.ROL = function (address) {
+	ROL(address) {
 		this.Set(address, this.ROL_Sub(this.Get(address)));
 	}
 
 
-	this.ROR_Sub = function (data) {
+	ROR_Sub(data) {
 		let carry = data & 0x01;
 		data = (data >> 1) | ((this.P & 0x01) << 7);
 		this.P = this.P & 0x7C | carry | this.ZNCacheTable[data];
@@ -419,26 +1437,26 @@ function FC() {
 	}
 
 
-	this.ROR = function (address) {
+	ROR(address) {
 		this.Set(address, this.ROR_Sub(this.Get(address)));
 	}
 
 
-	this.INC = function (address) {
+	INC(address) {
 		let data = (this.Get(address) + 1) & 0xFF;
 		this.P = this.P & 0x7D | this.ZNCacheTable[data];
 		this.Set(address, data);
 	}
 
 
-	this.DEC = function (address) {
+	DEC(address) {
 		let data = (this.Get(address) - 1) & 0xFF;
 		this.P = this.P & 0x7D | this.ZNCacheTable[data];
 		this.Set(address, data);
 	}
 
 
-	this.Branch = function (state) {
+	Branch(state) {
 		if(!state) {
 			this.PC++;
 			return;
@@ -451,20 +1469,20 @@ function FC() {
 
 
 	/* Undocument */
-	this.ANC = function (address) {
+	ANC(address) {
 		this.A &= this.Get(address);
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.A];
 		this.P = this.P & 0xFE | (this.A >>> 7);
 	}
 
 
-	this.ANE = function (address) {
+	ANE(address) {
 		this.A = (this.A | 0xEE) & this.X & this.Get(address);
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.A];
 	}
 
 
-	this.ARR = function (address) {
+	ARR(address) {
 		this.A &= this.Get(address);
 		this.A = (this.A >> 1) | ((this.P & 0x01) << 7);
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.A];
@@ -476,7 +1494,7 @@ function FC() {
 	}
 
 
-	this.ASR = function (address) {
+	ASR(address) {
 		this.A &= this.Get(address);
 
 		this.P = (this.P & 0xFE) | (this.A & 0x01);
@@ -486,41 +1504,41 @@ function FC() {
 	}
 
 
-	this.DCP = function (address) {
+	DCP(address) {
 		let tmp = (this.Get(address) - 1) & 0xFF;
 		this.P = this.P & 0x7C | this.ZNCacheTableCMP[(this.A - tmp) & 0x1FF];
 		this.Set(address, tmp);
 	}
 
 
-	this.ISB = function (address) {
+	ISB(address) {
 		let tmp = (this.Get(address) + 1) & 0xFF;
 		this.Adder(~tmp & 0xFF);
 		this.Set(address, tmp);
 	}
 
 
-	this.LAS = function (address) {
+	LAS(address) {
 		let tmp = this.Get(address) & this.S;
 		this.A = this.X = this.S = tmp;
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.A];
 	}
 
 
-	this.LAX = function (address) {
+	LAX(address) {
 		this.A = this.X = this.Get(address);
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.A];
 	}
 
 
-	this.LXA = function (address) {
+	LXA(address) {
 		let tmp = (this.A | 0xEE) & this.Get(address);
 		this.A = this.X = tmp;
 		this.P = this.P & 0x7D | this.ZNCacheTable[this.A];
 	}
 
 
-	this.RLA = function (address) {
+	RLA(address) {
 		let tmp = this.Get(address);
 		tmp = (tmp << 1) | (this.P & 0x01);
 		this.P = (this.P & 0xFE) | (tmp >> 8);
@@ -530,7 +1548,7 @@ function FC() {
 	}
 
 
-	this.RRA = function (address) {
+	RRA(address) {
 		let tmp = this.Get(address);
 		let c = tmp & 0x01;
 		tmp = (tmp >> 1) | ((this.P & 0x01) << 7)
@@ -540,13 +1558,13 @@ function FC() {
 	}
 
 
-	this.SAX = function (address) {
+	SAX(address) {
 		let tmp = this.A & this.X;
 		this.Set(address, tmp);
 	}
 
 
-	this.SBX = function (address) {
+	SBX(address) {
 		let tmp = (this.A & this.X) - this.Get(address);
 		this.P = (this.P & 0xFE) | ((~tmp >> 8) & 0x01);
 		this.X = tmp & 0xFF;
@@ -554,32 +1572,32 @@ function FC() {
 	}
 
 
-	this.SHA = function (address) {
+	SHA(address) {
 		let tmp = this.A & this.X & ((address >> 8) + 1);
 		this.Set(address, tmp);
 	}
 
 
-	this.SHS = function (address) {
+	SHS(address) {
 		this.S = this.A & this.X;
 		let tmp = this.S & ((address >> 8) + 1);
 		this.Set(address, tmp);
 	}
 
 
-	this.SHX = function (address) {
+	SHX(address) {
 		let tmp = this.X & ((address >> 8) + 1);
 		this.Set(address, tmp);
 	}
 
 
-	this.SHY = function (address) {
+	SHY(address) {
 		let tmp = this.Y & ((address >> 8) + 1);
 		this.Set(address, tmp);
 	}
 
 
-	this.SLO = function (address) {
+	SLO(address) {
 		let tmp = this.Get(address);
 		this.P = (this.P & 0xFE) | (tmp >> 7);
 		tmp = (tmp << 1) & 0xFF;
@@ -589,7 +1607,7 @@ function FC() {
 	}
 
 
-	this.SRE = function (address) {
+	SRE(address) {
 		let tmp = this.Get(address);
 		this.P = (this.P & 0xFE) | (tmp & 0x01);
 		tmp >>= 1;
@@ -599,7 +1617,7 @@ function FC() {
 	}
 
 
-	this.CpuRun = function () {
+	CpuRun() {
 		this.DrawFlag = false;
 		let cycletable = this.CycleTable;
 		let mapper = this.Mapper;
@@ -1685,110 +2703,8 @@ function FC() {
 	}
 
 
-/* **** PPU **** */
-	this.ScrollRegisterFlag = false;
-	this.PPUAddressRegisterFlag = false;
-	this.HScrollTmp = 0;
-	this.PPUAddress = 0;
-	this.PPUAddressBuffer = 0;
-	this.PPUChrAreaWrite = false;
-
-	this.Palette = null;
-	this.SpriteLineBuffer = null;
-	this.PPUReadBuffer = 0;
-
-	this.PaletteTable = [
-	[0x7C, 0x7C, 0x7C], [0x00, 0x00, 0xFC], [0x00, 0x00, 0xBC], [0x44, 0x28, 0xBC],
-	[0x94, 0x00, 0x84], [0xA8, 0x00, 0x20], [0xA8, 0x10, 0x00], [0x88, 0x14, 0x00],
-	[0x50, 0x30, 0x00], [0x00, 0x78, 0x00], [0x00, 0x68, 0x00], [0x00, 0x58, 0x00],
-	[0x00, 0x40, 0x58], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
-	[0xBC, 0xBC, 0xBC], [0x00, 0x78, 0xF8], [0x00, 0x58, 0xF8], [0x68, 0x44, 0xFC],
-	[0xD8, 0x00, 0xCC], [0xE4, 0x00, 0x58], [0xF8, 0x38, 0x00], [0xE4, 0x5C, 0x10],
-	[0xAC, 0x7C, 0x00], [0x00, 0xB8, 0x00], [0x00, 0xA8, 0x00], [0x00, 0xA8, 0x44],
-	[0x00, 0x88, 0x88], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
-	[0xF8, 0xF8, 0xF8], [0x3C, 0xBC, 0xFC], [0x68, 0x88, 0xFC], [0x98, 0x78, 0xF8],
-	[0xF8, 0x78, 0xF8], [0xF8, 0x58, 0x98], [0xF8, 0x78, 0x58], [0xFC, 0xA0, 0x44],
-	[0xF8, 0xB8, 0x00], [0xB8, 0xF8, 0x18], [0x58, 0xD8, 0x54], [0x58, 0xF8, 0x98],
-	[0x00, 0xE8, 0xD8], [0x78, 0x78, 0x78], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00],
-	[0xFC, 0xFC, 0xFC], [0xA4, 0xE4, 0xFC], [0xB8, 0xB8, 0xF8], [0xD8, 0xB8, 0xF8],
-	[0xF8, 0xB8, 0xF8], [0xF8, 0xA4, 0xC0], [0xF0, 0xD0, 0xB0], [0xFC, 0xE0, 0xA8],
-	[0xF8, 0xD8, 0x78], [0xD8, 0xF8, 0x78], [0xB8, 0xF8, 0xB8], [0xB8, 0xF8, 0xD8],
-	[0x00, 0xFC, 0xFC], [0xF8, 0xD8, 0xF8], [0x00, 0x00, 0x00], [0x00, 0x00, 0x00]];
-
-	this.PaletteTablesWeight = [
-	[1.000, 1.000, 1.000], [1.239, 0.915, 0.743], [0.794, 1.086, 0.882], [1.019, 0.980, 0.653],
-	[0.905, 1.026, 1.277], [1.023, 0.908, 0.979], [0.741, 0.987, 1.001], [0.750, 0.750, 0.750]];
-
-	this.PaletteTables = new Array(2);
-	this.PaletteTables[0] = new Array(8);
-	this.PaletteTables[1] = new Array(8);
-	for(let i=0; i<8; i++) {
-		this.PaletteTables[0][i] = new Array(64);
-		this.PaletteTables[1][i] = new Array(64);
-		for(let j=0; j<64; j++) {
-			this.PaletteTables[0][i][j] = new Array(3);
-			this.PaletteTables[1][i][j] = new Array(3);
-			for(let k=0; k<3; k++) {
-				this.PaletteTables[0][i][j][k] = (this.PaletteTable[j][k] * this.PaletteTablesWeight[i][k]) | 0;
-				if(this.PaletteTables[0][i][j][k] > 0xFF)
-					this.PaletteTables[0][i][j][k] = 0xFF;
-
-				this.PaletteTables[1][i][j][k] = (this.PaletteTable[j & 0x30][k] * this.PaletteTablesWeight[i][k]) | 0;
-				if(this.PaletteTables[1][i][j][k] > 0xFF)
-					this.PaletteTables[1][i][j][k] = 0xFF;
-			}
-		}
-	}
-
-	this.BgLineBuffer = null;
-
-	this.SPBitArray = new Array(256);
-	for(let i=0; i<256; i++) {
-		this.SPBitArray[i] = new Array(256);
-		for(let j=0; j<256; j++) {
-			this.SPBitArray[i][j] = new Array(8);
-			for(let k=0; k<8; k++)
-				this.SPBitArray[i][j][k] = (((i << k) & 0x80) >>> 7) | (((j << k) & 0x80) >>> 6);
-		}
-	}
-
-	this.PPUAddrAttrTable = new Array(1024);
-	this.PPUAddrAttrDataTable = new Array(1024);
-	for(let i=0; i<1024; i++) {
-		this.PPUAddrAttrTable[i]  = (((i & 0x0380) >> 4) | ((i & 0x001C) >> 2)) + 0x03C0;
-		this.PPUAddrAttrDataTable[i] = new Array(256);
-		let k = ((i & 0x0040) >> 4) | (i & 0x0002);
-		for(let j=0; j<256; j++)
-			this.PPUAddrAttrDataTable[i][j] = (((j << 2) >> k) & 0x0C) >> 2;
-	}
-
-	this.BGBitArray = new Array(256);
-	for(let i=0; i<256; i++) {
-		this.BGBitArray[i] = new Array(256);
-		for(let j=0; j<256; j++) {
-			this.BGBitArray[i][j] = new Array(4);
-			for(let k=0; k<4; k++) {
-				this.BGBitArray[i][j][k] = new Array(8);
-				for(let l=0; l<8; l++)
-					this.BGBitArray[i][j][k][l] = (k << 2) | this.SPBitArray[i][j][l];
-			}
-		}
-	}
-
-	this.PpuX = 0;
-	this.PpuY = 0;
-
-	this.Canvas = null;
-	this.ctx = null;
-
-	this.ImageData = null;
-	this.DrawFlag = false;
-
-	this.Sprite0Line = false;
-	this.SpriteLimit = true;
-
-
-	this.PpuInit = function () {
+	/* **** PPU **** */
+	PpuInit() {
 		this.ScrollRegisterFlag = false;
 		this.PPUAddressRegisterFlag = false;
 		this.HScrollTmp = 0;
@@ -1819,7 +2735,7 @@ function FC() {
 	}
 
 
-	this.SetMirror = function (value) {
+	SetMirror(value) {
 		if(value)
 			this.SetMirrors(0, 0, 1, 1);
 		else
@@ -1827,7 +2743,7 @@ function FC() {
 	}
 
 
-	this.SetMirrors = function (value0, value1, value2, value3) {
+	SetMirrors(value0, value1, value2, value3) {
 		this.SetChrRomPage1K( 8, value0 + 8 + 0x0100);
 		this.SetChrRomPage1K( 9, value1 + 8 + 0x0100);
 		this.SetChrRomPage1K(10, value2 + 8 + 0x0100);
@@ -1835,7 +2751,7 @@ function FC() {
 	}
 
 
-	this.SetChrRomPage1K = function (page, romPage){
+	SetChrRomPage1K(page, romPage){
 		if(romPage >= 0x0100) {
 			this.CHRROM_STATE[page] = romPage;
 			this.VRAM[page] = this.VRAMS[romPage & 0xFF];
@@ -1848,7 +2764,7 @@ function FC() {
 	}
 
 
-	this.SetChrRomPages1K = function (romPage0, romPage1, romPage2, romPage3, romPage4, romPage5, romPage6, romPage7){
+	SetChrRomPages1K(romPage0, romPage1, romPage2, romPage3, romPage4, romPage5, romPage6, romPage7){
 		this.SetChrRomPage1K(0, romPage0);
 		this.SetChrRomPage1K(1, romPage1);
 		this.SetChrRomPage1K(2, romPage2);
@@ -1860,14 +2776,14 @@ function FC() {
 	}
 
 
-	this.SetChrRomPage = function (num){
+	SetChrRomPage(num){
 		num <<= 3;
 		for(let i=0; i<8; i++)
 			this.SetChrRomPage1K(i, num + i);
 	}
 
 
-	this.SetCanvas = function (id) {
+	SetCanvas(id) {
 		this.Canvas = document.querySelector(id);
 		if(!this.Canvas.getContext)
 			return false;
@@ -1880,7 +2796,7 @@ function FC() {
 	}
 
 
-	this.PpuRun = function () {
+	PpuRun() {
 		let tmpIO1 = this.IO1;
 		let tmpSpLine = this.SpriteLineBuffer;
 		let tmpx = this.PpuX;
@@ -1980,7 +2896,7 @@ function FC() {
 	}
 
 
-	this.BuildBGLine_SUB = function () {
+	BuildBGLine_SUB() {
 		let tmpBgLineBuffer = this.BgLineBuffer;
 		let tmpVRAM = this.VRAM;
 		let nameAddr = 0x2000 | (this.PPUAddress & 0x0FFF);
@@ -2015,7 +2931,7 @@ function FC() {
 	}
 
 
-	this.BuildSpriteLine_SUB = function () {
+	BuildSpriteLine_SUB() {
 		let tmpBgLineBuffer = this.BgLineBuffer;
 		let tmpIsSpriteClipping = (this.IO1[0x01] & 0x04) == 0x04 ? 0 : 8;
 
@@ -2090,7 +3006,7 @@ function FC() {
 	}
 
 
-	this.WriteScrollRegister = function (value) {
+	WriteScrollRegister(value) {
 		this.IO1[0x05] = value;
 
 		if(this.ScrollRegisterFlag) {
@@ -2103,19 +3019,19 @@ function FC() {
 	}
 
 
-	this.WritePPUControlRegister0 = function (value) {
+	WritePPUControlRegister0(value) {
 		this.IO1[0x00] = value;
 
 		this.PPUAddressBuffer = (this.PPUAddressBuffer & 0xF3FF) | ((value & 0x03) << 10);
 	}
 
 
-	this.WritePPUControlRegister1 = function (value) {
+	WritePPUControlRegister1(value) {
 		this.IO1[0x01] = value;
 	}
 
 
-	this.WritePPUAddressRegister = function (value) {
+	WritePPUAddressRegister(value) {
 		this.IO1[0x06] = value;
 
 		if(this.PPUAddressRegisterFlag)
@@ -2126,7 +3042,7 @@ function FC() {
 	}
 
 
-	this.ReadPPUStatus = function () {
+	ReadPPUStatus() {
 		let result = this.IO1[0x02];
 		this.IO1[0x02] &= 0x7F;
 		this.ScrollRegisterFlag = false;
@@ -2135,7 +3051,7 @@ function FC() {
 	}
 
 
-	this.ReadPPUData_SUB = function () {
+	ReadPPUData_SUB() {
 		let tmp = this.PPUReadBuffer;
 		let addr = this.PPUAddress & 0x3FFF;
 
@@ -2152,7 +3068,7 @@ function FC() {
 	}
 
 
-	this.WritePPUData_SUB = function (value) {
+	WritePPUData_SUB(value) {
 		this.IO1[0x07] = value;
 
 		let tmpPPUAddress = this.PPUAddress & 0x3FFF;
@@ -2182,18 +3098,18 @@ function FC() {
 	}
 
 
-	this.WriteSpriteData = function (data){
+	WriteSpriteData(data){
 		this.SPRITE_RAM[this.IO1[0x03]] = data;
 		this.IO1[0x03] = (this.IO1[0x03] + 1) & 0xFF;
 	}
 
 
-	this.WriteSpriteAddressRegister = function (data) {
+	WriteSpriteAddressRegister(data) {
 		this.IO1[0x03] = data;
 	}
 
 
-	this.StartDMA = function (data) {
+	StartDMA(data) {
 		let offset = data << 8;
 		let tmpDist = this.SPRITE_RAM;
 		let adr = this.IO1[0x03];
@@ -2203,542 +3119,8 @@ function FC() {
 	}
 
 
-/* **** Header **** */
-	this.PrgRomPageCount = 0;
-	this.ChrRomPageCount = 0;
-	this.HMirror = false;
-	this.VMirror = false;
-	this.SramEnable = false;
-	this.TrainerEnable = false;
-	this.FourScreen = false;
-	this.MapperNumber = -1;
-
-
-	this.ParseHeader = function () {
-		if(this.Rom.length < 0x10 || this.Rom[0] != 0x4E || this.Rom[1] != 0x45 ||  this.Rom[2] != 0x53 || this.Rom[3] != 0x1A)
-			return false;
-
-		this.PrgRomPageCount = this.Rom[4]
-		this.ChrRomPageCount = this.Rom[5];
-		this.HMirror  = (this.Rom[6] & 0x01) == 0;
-		this.VMirror  = (this.Rom[6] & 0x01) != 0;
-		this.SramEnable = (this.Rom[6] & 0x02) != 0;
-		this.TrainerEnable = (this.Rom[6] & 0x04) != 0;
-		this.FourScreen = (this.Rom[6] & 0x08) != 0;
-		this.MapperNumber = (this.Rom[6] >> 4) | (this.Rom[7] & 0xF0);
-
-		return true;
-	}
-
-
-/* **** Storage **** */
-	this.RAM = new Array(0x800);
-
-	this.INNERSRAM = new Array(0x2000);
-	this.SRAM;
-
-	this.VRAM = new Array(16);
-
-	this.VRAMS = new Array(16);
-	for(let i=0; i<16; i++)
-		this.VRAMS[i] = new Array(0x0400);
-
-	this.SPRITE_RAM = new Array(0x100);
-
-	this.ROM = new Array(4);
-	this.ROM0 = null;
-	this.ROM1 = null;
-	this.ROM2 = null;
-	this.ROM3 = null;
-	this.ROM_RAM = new Array(4);
-	for(let i=0; i<4; i++)
-		this.ROM_RAM[i] = new Array(0x2000);
-
-	this.PRGROM_STATE = new Array(4);
-	this.CHRROM_STATE = new Array(8);
-
-	this.PRGROM_PAGES = null;
-	this.CHRROM_PAGES = null;
-
-	this.IO1 = new Array(8);
-	this.IO2 = new Array(0x20);
-
-	this.Rom = null;
-
-
-	this.StorageClear = function () {
-		let i;
-
-		this.RAM.fill(0);
-
-		this.INNERSRAM.fill(0);
-		this.SRAM = this.INNERSRAM;
-
-		this.PRGROM_STATE.fill(0);
-		this.CHRROM_STATE.fill(0);
-
-		for(i=0; i<this.VRAMS.length; i++) {
-			this.VRAMS[i].fill(0);
-			this.SetChrRomPage1K(i, i + 0x0100);
-		}
-
-		this.SPRITE_RAM.fill(0);
-
-		for(i=0; i<this.ROM_RAM.length; i++) {
-			this.ROM_RAM[i].fill(0);
-			this.SetPrgRomPage8K(i, -(i + 1));
-		}
-
-		this.IO1.fill(0);
-		this.IO2.fill(0);
-		this.IO2[0x17] = 0x40;
-	}
-
-
-	this.SetRom = function (rom) {
-		this.Rom = rom.concat(0);
-	}
-
-
-	this.StorageInit = function () {
-		this.PRGROM_PAGES = null;
-		this.CHRROM_PAGES = null;
-
-		let i;
-		this.PRGROM_PAGES = new Array(this.PrgRomPageCount * 2);
-		for(i=0; i< this.PrgRomPageCount * 2; i++)
-			this.PRGROM_PAGES[i] = this.Rom.slice(i * 0x2000 + 0x0010, i * 0x2000 + 0x2010);
-
-		if(this.ChrRomPageCount > 0) {
-			this.CHRROM_PAGES = new Array(this.ChrRomPageCount * 8);
-			for(i=0; i< this.ChrRomPageCount * 8; i++)
-				this.CHRROM_PAGES[i] = this.Rom.slice(this.PrgRomPageCount * 0x4000 + i * 0x0400 + 0x0010,
-								this.PrgRomPageCount * 0x4000 + i * 0x0400 + 0x0410);
-		}
-	}
-
-
-	this.Get = function (address) {
-		switch(address & 0xE000) {
-			case 0x0000:
-				return this.RAM[address & 0x7FF];
-			case 0x2000:
-				switch (address & 0x07) {
-					case 0x02:
-						return this.ReadPPUStatus();
-					case 0x07:
-						return this.Mapper.ReadPPUData();
-				}
-				return 0;
-			case 0x4000:
-				switch (address) {
-					case 0x4015:
-						return this.ReadWaveControl();
-					case 0x4016:
-						return this.ReadJoyPadRegister1();
-					case 0x4017:
-						return this.ReadJoyPadRegister2();
-					default:
-						return this.Mapper.ReadLow(address);
-				}
-			case 0x6000:
-				return this.Mapper.ReadSRAM(address);
-			case 0x8000:
-				return this.ROM0[address & 0x1FFF];
-			case 0xA000:
-				return this.ROM1[address & 0x1FFF];
-			case 0xC000:
-				return this.ROM2[address & 0x1FFF];
-			case 0xE000:
-				return this.ROM3[address & 0x1FFF];
-		}
-	}
-
-
-	this.Get16 = function (address) {
-		return this.Get(address) | (this.Get(address + 1) << 8);
-	}
-
-
-	this.Set = function (address, data) {
-		switch(address & 0xE000) {
-			case 0x0000:
-				this.RAM[address & 0x7FF] = data;
-				return;
-			case 0x2000:
-				switch (address & 0x07) {
-					case 0:
-						this.WritePPUControlRegister0(data);
-						return;
-					case 1:
-						this.WritePPUControlRegister1(data);
-						return;
-					case 2:
-						return;
-					case 3:
-						this.WriteSpriteAddressRegister(data);
-						return;
-					case 4:
-						this.WriteSpriteData(data);
-						return;
-					case 5:
-						this.WriteScrollRegister(data);
-						return;
-					case 6:
-						this.WritePPUAddressRegister(data);
-						return;
-					case 7:
-						this.Mapper.WritePPUData(data);
-						return;
-				}
-			case 0x4000:
-				if(address < 0x4020) {
-					this.IO2[address & 0x00FF] = data;
-					switch (address) {
-						case 0x4002:
-							this.WriteCh1Length0();
-							return;
-						case 0x4003:
-							this.WriteCh1Length1();
-							return;
-						case 0x4006:
-							this.WriteCh2Length0();
-							return;
-						case 0x4007:
-							this.WriteCh2Length1();
-							return;
-						case 0x4008:
-							this.WriteCh3LinearCounter();
-							return;
-						case 0x400B:
-							this.WriteCh3Length1();
-							return;
-						case 0x400F:
-							this.WriteCh4Length1();
-							return;
-						case 0x4010:
-							this.WriteCh5DeltaControl();
-							return;
-						case 0x4011:
-							this.WriteCh5DeltaCounter();
-							return;
-						case 0x4014:
-							this.StartDMA(data);
-							return;
-						case 0x4015:
-							this.WriteWaveControl();
-							return;
-						case 0x4016:
-							this.WriteJoyPadRegister1(data);
-							return;
-					}
-					return;
-				}
-				this.Mapper.WriteLow(address, data);
-				return;
-			case 0x6000:
-				this.Mapper.WriteSRAM(address, data);
-				return;
-			case 0x8000:
-			case 0xA000:
-			case 0xC000:
-			case 0xE000:
-				this.Mapper.Write(address, data);
-				return;
-		}
-	}
-
-
-	this.SetPrgRomPage8K = function (page, romPage){
-		if(romPage < 0) {
-			this.PRGROM_STATE[page] = romPage;
-			this.ROM[page] = this.ROM_RAM[-(romPage + 1)];
-		} else {
-			this.PRGROM_STATE[page] = romPage % (this.PrgRomPageCount * 2);
-			this.ROM[page] = this.PRGROM_PAGES[this.PRGROM_STATE[page]];
-		}
-
-		this.ROM0 = this.ROM[0];
-		this.ROM1 = this.ROM[1];
-		this.ROM2 = this.ROM[2];
-		this.ROM3 = this.ROM[3];
-	}
-
-
-	this.SetPrgRomPages8K = function (romPage0, romPage1, romPage2, romPage3){
-		this.SetPrgRomPage8K(0, romPage0);
-		this.SetPrgRomPage8K(1, romPage1);
-		this.SetPrgRomPage8K(2, romPage2);
-		this.SetPrgRomPage8K(3, romPage3);
-	}
-
-
-	this.SetPrgRomPage = function (no, num){
-		this.SetPrgRomPage8K(no * 2, num * 2);
-		this.SetPrgRomPage8K(no * 2 + 1, num * 2 + 1);
-	}
-
-
-/* **** JoyPad **** */
-	this.JoyPadStrobe = false;
-	this.JoyPadState = [0x00, 0x00];
-	this.JoyPadBuffer = [0x00, 0x00];
-	this.JoyPadKeyUpFunction = null;
-	this.JoyPadKeyDownFunction = null;
-	this.JoyPadKeyData = [
-		//A            B             SELECT   START   UP             DOWN           LEFT            RIGHT
-		[ 88/*X*/,     90/*Z*/,     65/*A*/, 83/*S*/, 38/*UP KEY*/, 40/*DOWN KEY*/, 37/*LEFT KEY*/, 39/*RIGHT KEY*/],
-		[105/*Num 7*/,103/*Num 9*/, -1,      -1,     104/*Num 8*/,  98/*Num 2*/,   100/*Num 4*/,   102/*Num 6*/]];
-
-	this.GamePadData = {};
-	this.GamePadData["STANDARD PAD"] = [
-		[{type:"B", index:1}, {type:"B", index:3}],// A
-		[{type:"B", index:0}, {type:"B", index:2}],// B
-		[{type:"B", index:8}],// SELECT
-		[{type:"B", index:9}],// START
-		[{type:"B", index:12}],// UP
-		[{type:"B", index:13}],// DOWN
-		[{type:"B", index:14}],// LEFT
-		[{type:"B", index:15}]];// RIGHT
-
-	this.GamePadData["UNKNOWN PAD"] = [
-		[{type:"B", index:1}],// A
-		[{type:"B", index:0}],// B
-		[{type:"B", index:2}],// SELECT
-		[{type:"B", index:3}],// START
-		[{type:"A-", index:1}],// UP
-		[{type:"A+", index:1}],// DOWN
-		[{type:"A-", index:0}],// LEFT
-		[{type:"A+", index:0}]];// RIGHT
-
-	this.GamePadData["HORI PAD 3 TURBO (Vendor: 0f0d Product: 0009)"] = [// Chrome
-		[{type:"B", index:2}, {type:"B", index:3}],// A
-		[{type:"B", index:1}, {type:"B", index:0}],// B
-		[{type:"B", index:8}],// SELECT
-		[{type:"B", index:9}],// START
-		[{type:"P", index:9}],// UP (POV)
-		[],// DOWN (POV)
-		[],// LEFT (POV)
-		[]];// RIGHT (POV)
-
-	this.GamePadData["0f0d-0009-HORI PAD 3 TURBO"] = [// Firefox
-		[{type:"B", index:2}, {type:"B", index:3}],// A
-		[{type:"B", index:1}, {type:"B", index:0}],// B
-		[{type:"B", index:8}],// SELECT
-		[{type:"B", index:9}],// START
-		[{type:"AB", index:6}],// UP
-		[{type:"AB", index:7}],// DOWN
-		[{type:"AB", index:5}],// LEFT
-		[{type:"AB", index:4}]];// RIGHT
-
-	this.GamePadPovData = [0x10, 0x10|0x80, 0x80, 0x20|0x80, 0x20, 0x20|0x40, 0x40, 0x10|0x40];
-
-
-	this.WriteJoyPadRegister1 = function (value) {
-		let s = (value & 0x01) == 0x01;
-		if(this.JoyPadStrobe && !s) {
-			this.JoyPadBuffer[0] = this.JoyPadState[0];
-			this.JoyPadBuffer[1] = this.JoyPadState[1];
-		}
-		this.JoyPadStrobe = s;
-	}
-
-
-	this.ReadJoyPadRegister1 = function () {
-		let result = this.JoyPadBuffer[0] & 0x01 | (this.MicrophoneLevel >= 0.1 ? 0x04 : 0x00);
-		this.JoyPadBuffer[0] >>>= 1;
-		return result;
-	}
-
-
-	this.ReadJoyPadRegister2 = function () {
-		let result = this.JoyPadBuffer[1] & 0x01;
-		this.JoyPadBuffer[1] >>>= 1;
-		return result;
-	}
-
-
-	this.KeyUpFunction = function (evt){
-		let i;
-		for(i=0; i<2; i++) {
-			let tmp = this.JoyPadKeyData[i].indexOf(evt.keyCode);
-			if(tmp != -1) {
-				this.JoyPadState[i] &= ~(0x01 << tmp);
-				break;
-			}
-		}
-		evt.preventDefault();
-	}
-
-
-	this.KeyDownFunction = function (evt){
-		let i;
-		for(i=0; i<2; i++) {
-			let tmp = this.JoyPadKeyData[i].indexOf(evt.keyCode);
-			if(tmp != -1) {
-				this.JoyPadState[i] |= 0x01 << tmp;
-				break;
-			}
-		}
-		evt.preventDefault();
-	}
-
-
-	this.JoyPadInit = function () {
-		this.JoyPadKeyUpFunction = this.KeyUpFunction.bind(this);
-		this.JoyPadKeyDownFunction = this.KeyDownFunction.bind(this);
-		document.addEventListener("keyup", this.JoyPadKeyUpFunction, true);
-		document.addEventListener("keydown", this.JoyPadKeyDownFunction, true);
-	}
-
-
-	this.JoyPadRelease = function () {
-		document.removeEventListener("keyup", this.JoyPadKeyUpFunction, true);
-		document.removeEventListener("keydown", this.JoyPadKeyDownFunction, true);
-	}
-
-
-	this.CheckGamePad = function () {
-		if(!this.Use_GetGamepads)
-			return;
-
-		let pads = navigator.getGamepads();
-		for(let i=0; i<2; i++) {
-			let pad = pads[i];
-			let paddata;
-			if(typeof pad !== "undefined" && pad !== null) {
-				this.JoyPadState[i] = 0x00;
-
-				if(pad.mapping === "standard")
-					paddata = this.GamePadData["STANDARD PAD"];
-				else {
-					paddata = this.GamePadData[pad.id];
-					if(typeof paddata === "undefined")
-						paddata = this.GamePadData["UNKNOWN PAD"];
-				}
-
-				let tmp = 0x01;
-				for(const val0 of paddata) {
-					for(const val1 of val0) {
-						switch(val1.type) {
-							case "B":
-								if(pad.buttons[val1.index].pressed)
-									this.JoyPadState[i] |= tmp;
-								break;
-							case "A-":
-								if(pad.axes[val1.index] < -0.5)
-									this.JoyPadState[i] |= tmp;
-								break;
-							case "A+":
-								if(pad.axes[val1.index] > 0.5)
-									this.JoyPadState[i] |= tmp;
-								break;
-							case "AB":
-								if(pad.axes[val1.index] > -0.75)
-									this.JoyPadState[i] |= tmp;
-								break;
-							case "P":
-								let povtmp = ((pad.axes[val1.index] + 1) * 7 / 2 + 0.5) | 0;
-								this.JoyPadState[i] |= povtmp <= 7 ? this.GamePadPovData[povtmp] : 0x00;
-								break;
-						}
-					}
-					tmp <<= 1;
-				}
-			}
-		}
-	}
-
-
-/* **** APU **** */
-	this.MicrophoneStream = null;
-	this.isMicrophone = false;
-	this.MicrophoneSource = null;
-	this.MicrophoneJsNode = null;
-	this.MicrophoneGainNode = null;
-	this.MicrophoneOut = false;
-	this.MicrophoneVolume = 0.5;
-	this.MicrophoneLevel = 0.0;
-
-	this.WaveOut = true;
-	this.WaveProcessing = false;
-	this.WaveDatas = new Array();
-	this.WaveSampleRate = 24000;
-	this.WaveFrameSequence = 0;
-	this.WaveFrameSequenceCounter = 0;
-	this.WaveVolume = 0.5;
-
-	this.WaveCh1LengthCounter = 0;
-	this.WaveCh1Envelope = 0;
-	this.WaveCh1EnvelopeCounter = 0;
-	this.WaveCh1Sweep = 0;
-	this.WaveCh1Frequency = 0;
-	this.WaveCh1Counter = 0;
-	this.WaveCh1WaveCounter = 0;
-
-	this.WaveCh2LengthCounter = 0;
-	this.WaveCh2Envelope = 0;
-	this.WaveCh2EnvelopeCounter = 0;
-	this.WaveCh2Sweep = 0;
-	this.WaveCh2Frequency = 0;
-	this.WaveCh2Counter = 0;
-	this.WaveCh2WaveCounter = 0;
-
-	this.WaveCh3LengthCounter = 0;
-	this.WaveCh3LinearCounter = 0;
-	this.WaveCh3Counter = 0;
-	this.WaveCh3WaveCounter = 0;
-
-	this.WaveCh4LengthCounter = 0;
-	this.WaveCh4Envelope = 0;
-	this.WaveCh4EnvelopeCounter = 0;
-	this.WaveCh4Register = 0;
-	this.WaveCh4BitSequence = 0;
-	this.WaveCh4Counter = 0;
-
-	this.WaveCh5DeltaCounter = 0;
-	this.WaveCh5Register = 0;
-	this.WaveCh5SampleAddress = 0;
-	this.WaveCh5SampleCounter = 0;
-	this.WaveCh5Counter = 0;
-
-	this.ApuClockCounter = 0;
-
-	this.WaveLengthCount = [
-	0x0A, 0xFE, 0x14, 0x02, 0x28, 0x04, 0x50, 0x06,
-	0xA0, 0x08, 0x3C, 0x0A, 0x0E, 0x0C, 0x1A, 0x0E,
-	0x0C, 0x10, 0x18, 0x12, 0x30, 0x14, 0x60, 0x16,
-	0xC0, 0x18, 0x48, 0x1A, 0x10, 0x1C, 0x20, 0x1E];
-
-	this.WaveCh1_2DutyData = [4, 8, 16, 24];
-
-	this.WaveCh3SequenceData = [
-	  15,  13,  11,  9,   7,   5,   3,   1,
-	  -1,  -3,  -5, -7,  -9, -11, -13, -15,
-	 -15, -13, -11, -9,  -7,  -5,  -3,  -1,
-	   1,   3,   5,  7,   9,  11,  13,  15];
-
-	this.WaveCh4FrequencyData = [
-	0x004, 0x008, 0x010, 0x020,
-	0x040, 0x060, 0x080, 0x0A0,
-	0x0CA, 0x0FE, 0x17C, 0x1FC,
-	0x2FA, 0x3F8, 0x7F2, 0xFE4];
-
-	this.WaveCh5FrequencyData = [
-	0x1AC, 0x17C, 0x154, 0x140,
-	0x11E, 0x0FE, 0x0E2, 0x0D6,
-	0x0BE, 0x0A0, 0x08E, 0x080,
-	0x06A, 0x054, 0x048, 0x036];
-
-	this.WebAudioCtx = null;
-	this.WebAudioJsNode = null;
-	this.WebAudioGainNode = null;
-	this.WebAudioBufferSize = 1024;
-
-	this.ApuCpuClockCounter = 0;
-
-
-	this.AudioInit = function () {
+	/* **** APU **** */
+	AudioInit() {
 		if(this.WebAudioCtx != null)
 			return true;
 
@@ -2758,7 +3140,7 @@ function FC() {
 	}
 
 
-	this.MicrophoneFunction = function (e) {
+	MicrophoneFunction(e) {
 		let output = e.outputBuffer.getChannelData(0);
 		let input = e.inputBuffer.getChannelData(0);
 
@@ -2776,7 +3158,7 @@ function FC() {
 	}
 
 
-	this.MicrophoneStart = function () {
+	MicrophoneStart() {
 		this.isMicrophone = false;
 
 		if(!this.AudioInit())
@@ -2807,31 +3189,31 @@ function FC() {
 	}
 
 
-	this.MicrophoneStop = function () {
+	MicrophoneStop() {
 		this.isMicrophone = false;
 	}
 
 
-	this.MicrophoneSpeaker = function (value) {
+	MicrophoneSpeaker(value) {
 		this.MicrophoneOut = value;
 	}
 
 
-	this.SetMicrophoneVolume = function (value) {
+	SetMicrophoneVolume(value) {
 		this.MicrophoneVolume = value;
 		if(this.MicrophoneStream != null)
 			this.MicrophoneGainNode.gain.value = this.MicrophoneVolume;
 	}
 
 
-	this.SetWebAudioVolume = function (value) {
+	SetWebAudioVolume(value) {
 		this.WaveVolume = value;
 		if(this.WebAudioCtx != null)
 			this.WebAudioGainNode.gain.value = this.WaveVolume;
 	}
 
 
-	this.WebAudioFunction = function (e) {
+	WebAudioFunction(e) {
 		let output = e.outputBuffer.getChannelData(0);
 		let data;
 		let len;
@@ -2852,7 +3234,7 @@ function FC() {
 	}
 
 
-	this.isSuspend = function () {
+	isSuspend() {
 		if(this.WebAudioCtx != null) {
 			if(this.WebAudioCtx.state === 'running')
 				return false;
@@ -2863,7 +3245,7 @@ function FC() {
 	}
 
 
-	this.Suspend = function () {
+	Suspend() {
 		if(this.WebAudioCtx != null) {
 			this.WebAudioCtx.suspend();
 			return true;
@@ -2872,7 +3254,7 @@ function FC() {
 	}
 
 
-	this.Resume = function () {
+	Resume() {
 		if(this.WebAudioCtx != null) {
 			this.WebAudioCtx.resume();
 			return true;
@@ -2881,7 +3263,7 @@ function FC() {
 	}
 
 
-	this.ReadWaveControl = function () {
+	ReadWaveControl() {
 		let tmp = 0x00;
 		if(this.WaveCh1LengthCounter != 0)
 			tmp |= 0x01;
@@ -2906,7 +3288,7 @@ function FC() {
 	}
 
 
-	this.WriteWaveControl = function () {
+	WriteWaveControl() {
 		let tmp = this.IO2[0x15];
 
 		if((tmp & 0x01) != 0x01)
@@ -2930,12 +3312,12 @@ function FC() {
 	}
 
 
-	this.WriteCh1Length0 = function () {
+	WriteCh1Length0() {
 		this.WaveCh1Frequency = ((this.IO2[0x03] & 0x07) << 8) + this.IO2[0x02] + 1;
 	}
 
 
-	this.WriteCh1Length1 = function () {
+	WriteCh1Length1() {
 		if((this.IO2[0x15] & 0x01) == 0x01)
 			this.WaveCh1LengthCounter = this.WaveLengthCount[this.IO2[0x03] >> 3];
 		this.WaveCh1Envelope = 0;
@@ -2945,12 +3327,12 @@ function FC() {
 	}
 
 
-	this.WriteCh2Length0 = function () {
+	WriteCh2Length0() {
 		this.WaveCh2Frequency = ((this.IO2[0x07] & 0x07) << 8) + this.IO2[0x06] + 1;
 	}
 
 
-	this.WriteCh2Length1 = function () {
+	WriteCh2Length1() {
 		if((this.IO2[0x15] & 0x02) == 0x02)
 			this.WaveCh2LengthCounter = this.WaveLengthCount[this.IO2[0x07] >> 3];
 		this.WaveCh2Envelope = 0;
@@ -2960,19 +3342,19 @@ function FC() {
 	}
 
 
-	this.WriteCh3LinearCounter = function (){
+	WriteCh3LinearCounter(){
 		this.WaveCh3LinearCounter = this.IO2[0x08] & 0x7F;
 	}
 
 
-	this.WriteCh3Length1 = function () {
+	WriteCh3Length1() {
 		if((this.IO2[0x15] & 0x04) == 0x04)
 			this.WaveCh3LengthCounter = this.WaveLengthCount[this.IO2[0x0B] >> 3];
 		this.WaveCh3LinearCounter = this.IO2[0x08] & 0x7F;
 	}
 
 
-	this.WriteCh4Length1 = function () {
+	WriteCh4Length1() {
 		if((this.IO2[0x15] & 0x08) == 0x08)
 			this.WaveCh4LengthCounter = this.WaveLengthCount[this.IO2[0x0F] >> 3];
 		this.WaveCh4Envelope = 0;
@@ -2980,18 +3362,18 @@ function FC() {
 	}
 
 
-	this.WriteCh5DeltaControl = function () {
+	WriteCh5DeltaControl() {
 		if((this.IO2[0x10] & 0x80) != 0x80)
 			this.toIRQ &= ~0x80;
 	}
 
 
-	this.WriteCh5DeltaCounter = function () {
+	WriteCh5DeltaCounter() {
 		this.WaveCh5DeltaCounter = this.IO2[0x11] & 0x7F;
 	}
 
 
-	this.SetCh5Delta = function () {
+	SetCh5Delta() {
 		let tmpIO2 = this.IO2;
 		this.WaveCh5DeltaCounter = tmpIO2[0x11] & 0x7F;
 		this.WaveCh5SampleAddress = (tmpIO2[0x12] << 6) + 0xC000;
@@ -3001,7 +3383,7 @@ function FC() {
 	}
 
 
-	this.ApuInit = function () {
+	ApuInit() {
 		this.WaveProcessing = false;
 
 		this.WaveFrameSequence = 0;
@@ -3050,7 +3432,7 @@ function FC() {
 	}
 
 
-	this.WaveFrameSequencer = function () {
+	WaveFrameSequencer() {
 		this.WaveFrameSequenceCounter += 240;
 		if(this.WaveFrameSequenceCounter >= this.MainClock) {
 			this.WaveFrameSequenceCounter -= this.MainClock;
@@ -3073,7 +3455,7 @@ function FC() {
 	}
 
 
-	this.WaveSequencer = function () {
+	WaveSequencer() {
 		let tmpIO2 = this.IO2;
 		let ch3freq = 0;
 		let ch4freq = 0;
@@ -3149,7 +3531,7 @@ function FC() {
 	}
 
 
-	this.ApuRun = function () {
+	ApuRun() {
 		let tmpIO2 = this.IO2;
 		let all_out = 0;
 		let ch3freq = 0;
@@ -3160,27 +3542,26 @@ function FC() {
 			this.WaveFrameSequencer();
 			this.WaveSequencer();
 
-			this.ApuClockCounter += this.WaveSampleRate;
-			if(this.ApuClockCounter >= this.MainClock) {
-				this.ApuClockCounter -= this.MainClock;
+			if(this.Use_AudioContext && this.WaveOut) {
+				this.ApuClockCounter += this.WaveSampleRate;
+				if(this.ApuClockCounter >= this.MainClock) {
+					this.ApuClockCounter -= this.MainClock;
 
-				all_out = 0;
+					all_out = 0;
+					if(this.WaveCh1LengthCounter != 0 && this.WaveCh1Frequency > 8)
+						all_out += ((tmpIO2[0x00] & 0x10) == 0x10 ? (tmpIO2[0x00] & 0x0F) : this.WaveCh1EnvelopeCounter) * (this.WaveCh1WaveCounter < this.WaveCh1_2DutyData[(tmpIO2[0x00] & 0xC0) >> 6] ? 1 : -1);
 
-				if(this.WaveCh1LengthCounter != 0 && this.WaveCh1Frequency > 8)
-					all_out += ((tmpIO2[0x00] & 0x10) == 0x10 ? (tmpIO2[0x00] & 0x0F) : this.WaveCh1EnvelopeCounter) * (this.WaveCh1WaveCounter < this.WaveCh1_2DutyData[(tmpIO2[0x00] & 0xC0) >> 6] ? 1 : -1);
+					if(this.WaveCh2LengthCounter != 0 && this.WaveCh2Frequency > 8)
+						all_out += ((tmpIO2[0x04] & 0x10) == 0x10 ? (tmpIO2[0x04] & 0x0F) : this.WaveCh2EnvelopeCounter) * (this.WaveCh2WaveCounter < this.WaveCh1_2DutyData[(tmpIO2[0x04] & 0xC0) >> 6] ? 1 : -1);
 
-				if(this.WaveCh2LengthCounter != 0 && this.WaveCh2Frequency > 8)
-					all_out += ((tmpIO2[0x04] & 0x10) == 0x10 ? (tmpIO2[0x04] & 0x0F) : this.WaveCh2EnvelopeCounter) * (this.WaveCh2WaveCounter < this.WaveCh1_2DutyData[(tmpIO2[0x04] & 0xC0) >> 6] ? 1 : -1);
+					if(this.WaveCh3LengthCounter != 0 && this.WaveCh3LinearCounter != 0 && ch3freq > 8)
+						all_out += this.WaveCh3SequenceData[this.WaveCh3WaveCounter];
 
-				if(this.WaveCh3LengthCounter != 0 && this.WaveCh3LinearCounter != 0 && ch3freq > 8)
-					all_out += this.WaveCh3SequenceData[this.WaveCh3WaveCounter];
+					if(this.WaveCh4LengthCounter != 0 && (this.WaveCh4Register & 0x0001) == 0x0000)
+						all_out += (tmpIO2[0x0C] & 0x10) == 0x10 ? (tmpIO2[0x0C] & 0x0F) : this.WaveCh4EnvelopeCounter;
 
-				if(this.WaveCh4LengthCounter != 0 && (this.WaveCh4Register & 0x0001) == 0x0000)
-					all_out += (tmpIO2[0x0C] & 0x10) == 0x10 ? (tmpIO2[0x0C] & 0x0F) : this.WaveCh4EnvelopeCounter;
+					all_out = (all_out + this.WaveCh5DeltaCounter) << 5;
 
-				all_out = (all_out + this.WaveCh5DeltaCounter) << 5;
-
-				if(this.Use_AudioContext && this.WaveOut) {
 					this.WaveDatas.push(all_out);
 					if(this.WaveDatas.length >= this.WebAudioBufferSize * 2)
 						this.WaveDatas = this.WaveDatas.slice(this.WebAudioBufferSize * 2);
@@ -3191,7 +3572,7 @@ function FC() {
 	}
 
 
-	this.WaveCh1_2_3_4_Length_WaveCh1_2_Sweep = function () {
+	WaveCh1_2_3_4_Length_WaveCh1_2_Sweep() {
 		let tmpIO2 = this.IO2;
 
 		if((tmpIO2[0x00] & 0x20) == 0x00 && this.WaveCh1LengthCounter != 0)
@@ -3234,7 +3615,7 @@ function FC() {
 	}
 
 
-	this.WaveCh1_2_4_Envelope_WaveCh3_Linear = function () {
+	WaveCh1_2_4_Envelope_WaveCh3_Linear() {
 		let tmpIO2 = this.IO2;
 
 		if((tmpIO2[0x00] & 0x10) == 0x00) {
@@ -3275,491 +3656,112 @@ function FC() {
 	}
 
 
-/* **** Mapper **** */
-	this.Mapper = null;
-
-
-/**** MapperBase ****/
-	class MapperBase {
-		constructor(core) {
-			this.Core = core;
-			this.MAPPER_REG = null;
+	/* **** JoyPad **** */
+	WriteJoyPadRegister1(value) {
+		let s = (value & 0x01) == 0x01;
+		if(this.JoyPadStrobe && !s) {
+			this.JoyPadBuffer[0] = this.JoyPadState[0];
+			this.JoyPadBuffer[1] = this.JoyPadState[1];
 		}
-
-		Init() {
-		}
-
-		ReadLow(address) {
-			return 0x40;
-		}
-
-		WriteLow(address, data) {
-		}
-
-		ReadPPUData() {
-			return this.Core.ReadPPUData_SUB();
-		}
-
-		WritePPUData(value) {
-			this.Core.WritePPUData_SUB(value);
-		}
-
-		BuildBGLine() {
-			this.Core.BuildBGLine_SUB();
-		}
-
-		BuildSpriteLine() {
-			this.Core.BuildSpriteLine_SUB();
-		}
-
-		ReadSRAM(address) {
-			return this.Core.SRAM[address & 0x1FFF];
-		}
-
-		WriteSRAM(address, data) {
-			this.Core.SRAM[address & 0x1FFF] = data;
-		}
-
-		Write(address, data) {
-		}
-
-		HSync(y) {
-		}
-
-		CPUSync(clock) {
-		}
-
-		SetIRQ() {
-			this.Core.toIRQ |= 0x04;
-		}
-
-		ClearIRQ() {
-			this.Core.toIRQ &= ~0x04;
-		}
+		this.JoyPadStrobe = s;
 	}
 
 
-/**** Mapper0 ****/
-	class Mapper0 extends MapperBase {
-		constructor(core) {
-			super(core);
-		}
-
-		Init() {
-			this.Core.SetPrgRomPage(0, 0);
-			this.Core.SetPrgRomPage(1, this.Core.PrgRomPageCount - 1);
-			this.Core.SetChrRomPage(0);
-		}
+	ReadJoyPadRegister1() {
+		let result = this.JoyPadBuffer[0] & 0x01 | (this.MicrophoneLevel >= 0.1 ? 0x04 : 0x00);
+		this.JoyPadBuffer[0] >>>= 1;
+		return result;
 	}
 
 
-/**** Mapper1 ****/
-	class Mapper1 extends MapperBase {
-		constructor(core) {
-			super(core);
-			this.MAPPER_REG = new Array(16);
-		}
-
-		Init() {
-			this.Core.PPUChrAreaWrite = true;
-
-			this.MAPPER_REG.fill(0);
-
-			this.MAPPER_REG[13] = 0;
-			this.MAPPER_REG[14] = 0x00;
-			this.MAPPER_REG[0] = 0x0C;
-			this.MAPPER_REG[1] = 0x00;
-			this.MAPPER_REG[2] = 0x00;
-			this.MAPPER_REG[3] = 0x00;
-
-			if(this.Core.PrgRomPageCount == 64) {
-				this.MAPPER_REG[10] = 2;
-			} else if(this.Core.PrgRomPageCount == 32) {
-				this.MAPPER_REG[10] = 1;
-			} else {
-				this.MAPPER_REG[10] = 0;
-			}
-			this.MAPPER_REG[11] = 0;
-			this.MAPPER_REG[12] = 0;
-
-			if(this.MAPPER_REG[10] == 0) {
-				this.MAPPER_REG[8] = this.Core.PrgRomPageCount * 2 - 2;
-				this.MAPPER_REG[9] = this.Core.PrgRomPageCount * 2 - 1;
-			} else {
-				this.MAPPER_REG[8] = 30;
-				this.MAPPER_REG[9] = 31;
-			}
-
-			this.MAPPER_REG[4] = 0;
-			this.MAPPER_REG[5] = 1;
-			this.MAPPER_REG[6] = this.MAPPER_REG[8];
-			this.MAPPER_REG[7] = this.MAPPER_REG[9];
-
-			this.Core.SetPrgRomPages8K(this.MAPPER_REG[4], this.MAPPER_REG[5], this.MAPPER_REG[6], this.MAPPER_REG[7]);
-		}
-
-		Write(address, data) {
-			let reg_num;
-
-			if((address & 0x6000) != (this.MAPPER_REG[15] & 0x6000)) {
-				this.MAPPER_REG[13] = 0;
-				this.MAPPER_REG[14] = 0x00;
-			}
-			this.MAPPER_REG[15] = address;
-
-			if((data & 0x80) != 0) {
-				this.MAPPER_REG[13] = 0;
-				this.MAPPER_REG[14] = 0x00;
-				return;
-			}
-
-			if((data & 0x01) != 0)
-				this.MAPPER_REG[14] |= (1 << this.MAPPER_REG[13]);
-				this.MAPPER_REG[13]++;
-			if(this.MAPPER_REG[13] < 5)
-				return;
-
-			reg_num = (address & 0x7FFF) >> 13;
-			this.MAPPER_REG[reg_num] = this.MAPPER_REG[14];
-
-			this.MAPPER_REG[13] = 0;
-			this.MAPPER_REG[14] = 0x00;
-
-			let bank_num;
-
-			switch (reg_num) {
-				case 0 :
-					if((this.MAPPER_REG[0] & 0x02) != 0) {
-						if((this.MAPPER_REG[0] & 0x01) != 0) {
-							this.Core.SetMirror(true);
-						} else {
-							this.Core.SetMirror(false);
-						}
-					} else {
-						if((this.MAPPER_REG[0] & 0x01) != 0) {
-							this.Core.SetMirrors(1, 1, 1, 1);
-						} else {
-							this.Core.SetMirrors(0, 0, 0, 0);
-						}
-					}
-					break;
-
-				case 1 :
-					bank_num = this.MAPPER_REG[1];
-					if(this.MAPPER_REG[10] == 2) {
-						if((this.MAPPER_REG[0] & 0x10) != 0) {
-							if(this.MAPPER_REG[12] != 0) {
-								this.MAPPER_REG[11] = (this.MAPPER_REG[1] & 0x10) >> 4;
-								if((this.MAPPER_REG[0] & 0x08) != 0) {
-									this.MAPPER_REG[11] |= ((this.MAPPER_REG[2] & 0x10) >> 3);
-								}
-								this.SetPrgRomPages8K_Mapper01();
-								this.MAPPER_REG[12] = 0;
-							} else {
-								this.MAPPER_REG[12] = 1;
-							}
-						} else {
-							this.MAPPER_REG[11] = (this.MAPPER_REG[1] & 0x10) != 0 ? 3 : 0;
-							this.SetPrgRomPages8K_Mapper01();
-						}
-					} else if((this.MAPPER_REG[10] == 1) && (this.Core.ChrRomPageCount == 0)) {
-						this.MAPPER_REG[11] = (this.MAPPER_REG[1] & 0x10) >> 4;
-						this.SetPrgRomPages8K_Mapper01();
-					} else if(this.Core.ChrRomPageCount != 0) {
-		    				if((this.MAPPER_REG[0] & 0x10) != 0) {
-							bank_num <<= 2;
-							this.Core.SetChrRomPage1K(0, bank_num + 0);
-							this.Core.SetChrRomPage1K(1, bank_num + 1);
-							this.Core.SetChrRomPage1K(2, bank_num + 2);
-							this.Core.SetChrRomPage1K(3, bank_num + 3);
-						} else {
-							bank_num <<= 2;
-							this.Core.SetChrRomPages1K(bank_num + 0, bank_num + 1, bank_num + 2, bank_num + 3,
-										 bank_num + 4, bank_num + 5, bank_num + 6, bank_num + 7);
-						}
-					} else {
-						if((this.MAPPER_REG[0] & 0x10) != 0) {
-							bank_num <<= 2;
-							this.Core.VRAM[0] = this.Core.VRAMS[bank_num + 0];
-							this.Core.VRAM[1] = this.Core.VRAMS[bank_num + 1];
-							this.Core.VRAM[2] = this.Core.VRAMS[bank_num + 2];
-							this.Core.VRAM[3] = this.Core.VRAMS[bank_num + 3];
-						}
-					}
-			                break;
-
-				case 2 :
-					bank_num = this.MAPPER_REG[2];
-
-					if((this.MAPPER_REG[10] == 2) && (this.MAPPER_REG[0] & 0x08) != 0) {
-						if(this.MAPPER_REG[12] != 0) {
-							this.MAPPER_REG[11] = (this.MAPPER_REG[1] & 0x10) >> 4;
-							this.MAPPER_REG[11] |= ((this.MAPPER_REG[2] & 0x10) >> 3);
-							this.SetPrgRomPages8K_Mapper01();
-							this.MAPPER_REG[12] = 0;
-						} else {
-							this.MAPPER_REG[12] = 1;
-						}
-					}
-
-					if(this.Core.ChrRomPageCount == 0) {
-						if((this.MAPPER_REG[0] & 0x10) != 0) {
-							bank_num <<= 2;
-							this.Core.VRAM[4] = this.Core.VRAMS[bank_num + 0];
-							this.Core.VRAM[5] = this.Core.VRAMS[bank_num + 1];
-							this.Core.VRAM[6] = this.Core.VRAMS[bank_num + 2];
-							this.Core.VRAM[7] = this.Core.VRAMS[bank_num + 3];
-							break;
-						}
-					}
-
-					if((this.MAPPER_REG[0] & 0x10) != 0) {
-							bank_num <<= 2;
-							this.Core.SetChrRomPage1K(4, bank_num + 0);
-							this.Core.SetChrRomPage1K(5, bank_num + 1);
-							this.Core.SetChrRomPage1K(6, bank_num + 2);
-							this.Core.SetChrRomPage1K(7, bank_num + 3);
-					}
-					break;
-
-
-				case 3 :
-					bank_num = this.MAPPER_REG[3];
-
-					if((this.MAPPER_REG[0] & 0x08) != 0) {
-						bank_num <<= 1;
-
-						if((this.MAPPER_REG[0] & 0x04) != 0) {
-							this.MAPPER_REG[4] = bank_num;
-							this.MAPPER_REG[5] = bank_num + 1;
-							this.MAPPER_REG[6] = this.MAPPER_REG[8];
-							this.MAPPER_REG[7] = this.MAPPER_REG[9];
-						} else {
-							if(this.MAPPER_REG[10] == 0) {
-								this.MAPPER_REG[4] = 0;
-								this.MAPPER_REG[5] = 1;
-								this.MAPPER_REG[6] = bank_num;
-								this.MAPPER_REG[7] = bank_num + 1;
-							}
-						}
-					} else {
-			                        bank_num <<= 1;
-						this.MAPPER_REG[4] = bank_num;
-						this.MAPPER_REG[5] = bank_num + 1;
-						if(this.MAPPER_REG[10] == 0) {
-							this.MAPPER_REG[6] = bank_num + 2;
-							this.MAPPER_REG[7] = bank_num + 3;
-						}
-					}
-
-					this.SetPrgRomPages8K_Mapper01();
-					break;
-			}
-		}
-
-		SetPrgRomPages8K_Mapper01 (){
-			this.Core.SetPrgRomPage8K(0, (this.MAPPER_REG[11] << 5) + (this.MAPPER_REG[4] & 31));
-			this.Core.SetPrgRomPage8K(1, (this.MAPPER_REG[11] << 5) + (this.MAPPER_REG[5] & 31));
-			this.Core.SetPrgRomPage8K(2, (this.MAPPER_REG[11] << 5) + (this.MAPPER_REG[6] & 31));
-			this.Core.SetPrgRomPage8K(3, (this.MAPPER_REG[11] << 5) + (this.MAPPER_REG[7] & 31));
-		}
+	ReadJoyPadRegister2() {
+		let result = this.JoyPadBuffer[1] & 0x01;
+		this.JoyPadBuffer[1] >>>= 1;
+		return result;
 	}
 
 
-/**** Mapper2 ****/
-	class Mapper2 extends MapperBase {
-		constructor(core) {
-			super(core);
-		}
-
-		Init() {
-			this.Core.PPUChrAreaWrite = true;
-
-			this.Core.SetPrgRomPage(0, 0);
-			this.Core.SetPrgRomPage(1, this.Core.PrgRomPageCount - 1);
-			this.Core.SetChrRomPage(0);
-		}
-
-		Write(address, data) {
-			this.Core.SetPrgRomPage(0, data);
-		}
+	JoyPadInit() {
+		document.addEventListener("keyup", this.KeyUpFunction, true);
+		document.addEventListener("keydown", this.KeyDownFunction, true);
 	}
 
 
-/**** Mapper3 ****/
-	class Mapper3 extends MapperBase {
-		constructor(core) {
-			super(core);
-		}
-
-		Init() {
-			this.Core.SetPrgRomPage(0, 0);
-			this.Core.SetPrgRomPage(1, this.Core.PrgRomPageCount - 1);
-			this.Core.SetChrRomPage(0);
-		}
-
-		Write(address, data) {
-			this.Core.SetChrRomPage(data & 0x0F);
-		}
+	JoyPadRelease() {
+		document.removeEventListener("keyup", this.KeyUpFunction, true);
+		document.removeEventListener("keydown", this.KeyDownFunction, true);
 	}
 
 
-/**** Mapper4 ****/
-	class Mapper4 extends MapperBase {
-		constructor(core) {
-			super(core);
-			this.MAPPER_REG = new Array(21);
-		}
+	CheckGamePad() {
+		if(!this.Use_GetGamepads)
+			return;
 
-		Init() {
-			this.MAPPER_REG.fill(0);
+		let pads = navigator.getGamepads();
+		for(let i=0; i<2; i++) {
+			let pad = pads[i];
+			let paddata;
+			if(typeof pad !== "undefined" && pad !== null) {
+				this.JoyPadState[i] = 0x00;
 
-			this.MAPPER_REG[16] = 0;
-			this.MAPPER_REG[17] = 1;
-			this.MAPPER_REG[18] = (this.Core.PrgRomPageCount - 1) * 2;
-			this.MAPPER_REG[19] = (this.Core.PrgRomPageCount - 1) * 2 + 1;
-			this.Core.SetPrgRomPages8K(this.MAPPER_REG[16], this.MAPPER_REG[17], this.MAPPER_REG[18], this.MAPPER_REG[19]);
+				if(pad.mapping === "standard")
+					paddata = this.GamePadData["STANDARD PAD"];
+				else {
+					paddata = this.GamePadData[pad.id];
+					if(typeof paddata === "undefined")
+						paddata = this.GamePadData["UNKNOWN PAD"];
+				}
 
-			this.MAPPER_REG[8] = 0;
-			this.MAPPER_REG[9] = 1;
-			this.MAPPER_REG[10] = 2;
-			this.MAPPER_REG[11] = 3;
-			this.MAPPER_REG[12] = 4;
-			this.MAPPER_REG[13] = 5;
-			this.MAPPER_REG[14] = 6;
-			this.MAPPER_REG[15] = 7;
-			this.Core.SetChrRomPages1K(this.MAPPER_REG[8], this.MAPPER_REG[9], this.MAPPER_REG[10], this.MAPPER_REG[11],
-						this.MAPPER_REG[12], this.MAPPER_REG[13], this.MAPPER_REG[14], this.MAPPER_REG[15]);
-		}
-
-		Write(address, data) {
-			switch (address & 0xE001) {
-				case 0x8000:
-					this.MAPPER_REG[0] = data;
-					if((data & 0x80) == 0x80) {
-						this.Core.SetChrRomPages1K(this.MAPPER_REG[12], this.MAPPER_REG[13], this.MAPPER_REG[14], this.MAPPER_REG[15], 
-									this.MAPPER_REG[8], this.MAPPER_REG[9], this.MAPPER_REG[10], this.MAPPER_REG[11]); 
-					} else {
-						this.Core.SetChrRomPages1K(this.MAPPER_REG[8], this.MAPPER_REG[9], this.MAPPER_REG[10], this.MAPPER_REG[11], 
-									this.MAPPER_REG[12], this.MAPPER_REG[13], this.MAPPER_REG[14], this.MAPPER_REG[15]); 
+				let tmp = 0x01;
+				for(const val0 of paddata) {
+					for(const val1 of val0) {
+						switch(val1.type) {
+							case "B":
+								if(pad.buttons[val1.index].pressed)
+									this.JoyPadState[i] |= tmp;
+								break;
+							case "A-":
+								if(pad.axes[val1.index] < -0.5)
+									this.JoyPadState[i] |= tmp;
+								break;
+							case "A+":
+								if(pad.axes[val1.index] > 0.5)
+									this.JoyPadState[i] |= tmp;
+								break;
+							case "AB":
+								if(pad.axes[val1.index] > -0.75)
+									this.JoyPadState[i] |= tmp;
+								break;
+							case "P":
+								let povtmp = ((pad.axes[val1.index] + 1) * 7 / 2 + 0.5) | 0;
+								this.JoyPadState[i] |= povtmp <= 7 ? this.GamePadPovData[povtmp] : 0x00;
+								break;
+						}
 					}
-
-					if((data & 0x40) == 0x40) {
-						this.Core.SetPrgRomPages8K(this.MAPPER_REG[18], this.MAPPER_REG[17], this.MAPPER_REG[16],this.MAPPER_REG[19]);
-					} else {
-						this.Core.SetPrgRomPages8K(this.MAPPER_REG[16], this.MAPPER_REG[17], this.MAPPER_REG[18],this.MAPPER_REG[19]);
-					}
-					break;
-				case 0x8001:
-					this.MAPPER_REG[1] = data;
-					switch (this.MAPPER_REG[0] & 0x07) {
-						case 0:
-							data &= 0xFE;
-							this.MAPPER_REG[8] = data;
-							this.MAPPER_REG[9] = data + 1;
-							break;
-						case 1:
-							data &= 0xFE;
-							this.MAPPER_REG[10] = data;
-							this.MAPPER_REG[11] = data + 1;
-							break;
-						case 2:
-							this.MAPPER_REG[12] = data;
-							break;
-						case 3:
-							this.MAPPER_REG[13] = data;
-							break;
-						case 4:
-							this.MAPPER_REG[14] = data;
-							break;
-						case 5:
-							this.MAPPER_REG[15] = data;
-							break;
-						case 6:
-							this.MAPPER_REG[16] = data;
-							break;
-						case 7:
-							this.MAPPER_REG[17] = data;
-							break;
-					}
-
-					if((this.MAPPER_REG[0] & 0x80) == 0x80) {
-						this.Core.SetChrRomPages1K(this.MAPPER_REG[12], this.MAPPER_REG[13], this.MAPPER_REG[14], this.MAPPER_REG[15], 
-									this.MAPPER_REG[8], this.MAPPER_REG[9], this.MAPPER_REG[10], this.MAPPER_REG[11]); 
-					} else {
-						this.Core.SetChrRomPages1K(this.MAPPER_REG[8], this.MAPPER_REG[9], this.MAPPER_REG[10], this.MAPPER_REG[11], 
-									this.MAPPER_REG[12], this.MAPPER_REG[13], this.MAPPER_REG[14], this.MAPPER_REG[15]); 
-					}
-
-					if((this.MAPPER_REG[0] & 0x40) == 0x40) {
-						this.Core.SetPrgRomPages8K(this.MAPPER_REG[18], this.MAPPER_REG[17], this.MAPPER_REG[16],this.MAPPER_REG[19]);
-					} else {
-						this.Core.SetPrgRomPages8K(this.MAPPER_REG[16], this.MAPPER_REG[17], this.MAPPER_REG[18],this.MAPPER_REG[19]);
-					}
-					break;
-
-				case 0xA000:
-					if((data & 0x01) == 0x01)
-						this.Core.SetMirror(true);
-					else
-						this.Core.SetMirror(false);
-					this.MAPPER_REG[2] = data;
-					break;
-				case 0xA001:
-					this.MAPPER_REG[3] = data;
-					break;
-
-				case 0xC000:
-					this.MAPPER_REG[4] = data;
-					break;
-				case 0xC001:
-					this.MAPPER_REG[5] = 1;
-					break;
-
-				case 0xE000:
-					this.MAPPER_REG[7] = 0;
-					this.ClearIRQ();
-					break;
-				case 0xE001:
-					this.MAPPER_REG[7] = 1;
-					break;
-			}
-		}
-
-		HSync(y) {
-			if(y < 240 && (this.Core.IO1[0x01] & 0x08) == 0x08) {
-				if(this.MAPPER_REG[20] == 0 || this.MAPPER_REG[5] == 1) {
-					this.MAPPER_REG[20] = this.MAPPER_REG[4];
-					this.MAPPER_REG[5] = 0;
-				} else
-					this.MAPPER_REG[20]--;
-
-				if(this.MAPPER_REG[20] == 0){
-					if(this.MAPPER_REG[7] == 1) {
-						this.SetIRQ();
-					}
+					tmp <<= 1;
 				}
 			}
 		}
 	}
 
 
-	this.MapperSelect = function () {
+	/* **** Mapper **** */
+	MapperSelect() {
 		switch(this.MapperNumber) {
 			case 0:
-				this.Mapper = new Mapper0(this);
+				this.Mapper = new this.Mapper0(this);
 				break;
 			case 1:
-				this.Mapper = new Mapper1(this);
+				this.Mapper = new this.Mapper1(this);
 				break;
 			case 2:
-				this.Mapper = new Mapper2(this);
+				this.Mapper = new this.Mapper2(this);
 				break;
 			case 3:
-				this.Mapper = new Mapper3(this);
+				this.Mapper = new this.Mapper3(this);
 				break;
 			case 4:
-				this.Mapper = new Mapper4(this);
+				this.Mapper = new this.Mapper4(this);
 				break;
 			default:
 				return false;
