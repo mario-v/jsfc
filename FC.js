@@ -163,9 +163,15 @@ class FC {
 		for(let i=0; i<256; i++) {
 			this.SPBitArray[i] = new Array(256);
 			for(let j=0; j<256; j++) {
-				this.SPBitArray[i][j] = new Array(8);
-				for(let k=0; k<8; k++)
-					this.SPBitArray[i][j][k] = (((i << k) & 0x80) >>> 7) | (((j << k) & 0x80) >>> 6);
+				this.SPBitArray[i][j] = new Array(4);
+				for(let k=0; k<4; k++) {
+					this.SPBitArray[i][j][k] = new Array(8);
+					for(let l=0; l<8; l++) {
+						this.SPBitArray[i][j][k][l] = (((i << l) & 0x80) >>> 7) | (((j << l) & 0x80) >>> 6);
+						if(this.SPBitArray[i][j][k][l] != 0)
+							this.SPBitArray[i][j][k][l] |= (k << 2) | 0x10;
+					}
+				}
 			}
 		}
 
@@ -177,7 +183,8 @@ class FC {
 				for(let k=0; k<4; k++) {
 					this.BGBitArray[i][j][k] = new Array(8);
 					for(let l=0; l<8; l++)
-						this.BGBitArray[i][j][k][l] = (k << 2) | this.SPBitArray[i][j][l];
+						//this.BGBitArray[i][j][k][l] = (k << 2) | this.SPBitArray[i][j][l];//<--
+						this.BGBitArray[i][j][k][l] = (k << 2) | (((i << l) & 0x80) >>> 7) | (((j << l) & 0x80) >>> 6);
 				}
 			}
 		}
@@ -2967,16 +2974,13 @@ class FC {
 					ex = 256;
 
 				let attr = tmpSpRAM[i + 2];
-
-				let attribute = ((attr & 0x03) << 2) | 0x10;
 				let bgsp = (attr & 0x20) == 0x00;
-
 				let iy = (attr & 0x80) == 0x80 ? tmpBigSize - 1 - (lineY - isy) : lineY - isy;
 				let tileNum = ((iy & 0x08) << 1) + (iy & 0x07) +
 					(tmpBigSize == 8 ? (tmpSpRAM[i + 1] << 4) + tmpSpPatternTableAddress : ((tmpSpRAM[i + 1] & 0xFE) << 4) + ((tmpSpRAM[i + 1] & 0x01) << 12));
 				let tmpHigh = tmpVRAM[tileNum >> 10];
 				let tmpLow = tileNum & 0x03FF;
-				let ptn = tmpSPBitArray[tmpHigh[tmpLow]][tmpHigh[tmpLow + 8]];
+				let ptn = tmpSPBitArray[tmpHigh[tmpLow]][tmpHigh[tmpLow + 8]][attr & 0x03];
 
 				let is;
 				let ia;
@@ -2993,7 +2997,7 @@ class FC {
 					if(tmpPtn != 0x00 && tmpSpLine[x] == 256) {
 						tmpSpLine[x] = i;
 						if(x >= tmpIsSpriteClipping && (bgsp || (tmpBgLineBuffer[x] & 0x03) == 0x00))
-								tmpBgLineBuffer[x] = tmpPtn | attribute;
+								tmpBgLineBuffer[x] = tmpPtn;
 					}
 				}
 			}
