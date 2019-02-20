@@ -183,7 +183,6 @@ class FC {
 				for(let k=0; k<4; k++) {
 					this.BGBitArray[i][j][k] = new Array(8);
 					for(let l=0; l<8; l++)
-						//this.BGBitArray[i][j][k][l] = (k << 2) | this.SPBitArray[i][j][l];//<--
 						this.BGBitArray[i][j][k][l] = (k << 2) | (((i << l) & 0x80) >>> 7) | (((j << l) & 0x80) >>> 6);
 				}
 			}
